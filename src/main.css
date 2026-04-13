@@ -2453,6 +2453,46 @@ body {
 .intensity-moderate { background: rgba(232, 160, 80, 0.5); }
 .intensity-emerging { background: rgba(232, 160, 80, 0.2); border: 1px solid rgba(232, 160, 80, 0.3); }
 
+/* Runtime page scoping fixes */
+body.wing-page .content {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+body.wing-page .rooms-grid {
+  max-width: 1000px;
+  width: min(1000px, 100%);
+}
+body.wing-page .door-frame {
+  aspect-ratio: 0.55;
+}
+
+body.light-diary {
+  background: #F7F2EA;
+  color: #2C2416;
+}
+body.light-diary::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.06;
+  pointer-events: none;
+}
+body.light-contacts {
+  background: #FDFBF7;
+  color: #2A241A;
+}
+body.light-contacts::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.05;
+  pointer-events: none;
+}
+
 .skill-detail-info {}
 
 .skill-detail-name {

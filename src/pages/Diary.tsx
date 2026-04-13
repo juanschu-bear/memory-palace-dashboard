@@ -157,6 +157,7 @@ export default function DiaryPage(){
   const ref = useRef<HTMLDivElement>(null);
   const params = useParams();
   useEffect(()=>{
+    document.body.classList.add("light-diary");
     const root=ref.current; if(!root) return;
     (async()=>{
       try{const s=await fetchPalaceStatus();const vals=root.querySelectorAll('.stats-bar .text-xl'); if(vals[0]) vals[0].textContent=String(Object.keys(s?.wings||{}).length||0); if(vals[1]) vals[1].textContent=String(s?.total_drawers||0);}catch{}
@@ -164,6 +165,7 @@ export default function DiaryPage(){
       try{const d=await readDiary((params.slug as string)||'trace-flores',10); const n=root.querySelector('.diary-live-count'); if(n) n.textContent=String(Array.isArray(d?.entries)?d.entries.length:0);}catch{}
       try{const [c,m,v]=await Promise.all([fetchContacts(),fetchMemories(),fetchConversationMemory()]); const c1=root.querySelector('.contacts-live-count'); const c2=root.querySelector('.sessions-live-count'); if(c1) c1.textContent=String(Array.isArray(c)?c.length:0); if(c2) c2.textContent=String((Array.isArray(m)?m.length:0)+(Array.isArray(v)?v.length:0));}catch{}
     })();
+    return ()=>{ document.body.classList.remove("light-diary"); };
   },[params.slug,params.room]);
   return <div ref={ref} dangerouslySetInnerHTML={{__html:HTML}} />;
 }

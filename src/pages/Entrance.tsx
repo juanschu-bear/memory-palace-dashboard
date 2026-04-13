@@ -63,7 +63,7 @@ const HTML = `<!-- Global Navigation -->
     </div>
   </a>
 
-  <a class="wing-corridor" href="/wing/trace-flores">
+  <a class="wing-corridor" href="/wing/juan-schubert">
     <span class="corridor-number">02</span>
     <span class="corridor-name">Juan Schubert</span>
     <span class="corridor-role">System Architect & Digital Twin</span>
@@ -73,7 +73,7 @@ const HTML = `<!-- Global Navigation -->
     </div>
   </a>
 
-  <a class="wing-corridor" href="/wing/trace-flores">
+  <a class="wing-corridor" href="/wing/adri-kastel">
     <span class="corridor-number">03</span>
     <span class="corridor-name">Adri Kastel</span>
     <span class="corridor-role">Growth Expert & Scaling Mentor</span>
@@ -83,7 +83,7 @@ const HTML = `<!-- Global Navigation -->
     </div>
   </a>
 
-  <a class="wing-corridor" href="/wing/trace-flores">
+  <a class="wing-corridor" href="/wing/prof-brian-cox">
     <span class="corridor-number">04</span>
     <span class="corridor-name">Prof. Brian Cox</span>
     <span class="corridor-role">Science Communicator & Educator</span>
@@ -93,7 +93,7 @@ const HTML = `<!-- Global Navigation -->
     </div>
   </a>
 
-  <a class="wing-corridor" href="/wing/trace-flores">
+  <a class="wing-corridor" href="/wing/clara-fontaine">
     <span class="corridor-number">05</span>
     <span class="corridor-name">Clara Fontaine</span>
     <span class="corridor-role">Executive Communication Coach</span>
@@ -103,7 +103,7 @@ const HTML = `<!-- Global Navigation -->
     </div>
   </a>
 
-  <a class="wing-corridor" href="/wing/trace-flores">
+  <a class="wing-corridor" href="/wing/elena-navarro">
     <span class="corridor-number">06</span>
     <span class="corridor-name">Elena Navarro</span>
     <span class="corridor-role">Sales Strategist & Business Growth Expert</span>
