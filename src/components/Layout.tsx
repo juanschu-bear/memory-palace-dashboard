@@ -8,4 +8,4 @@ const links=[
 {to:"/contacts",label:"Contacts"},
 {to:"/skills",label:"Skills"},
 ];
-export default function AppLayout(){return (<><nav className="global-nav"><span className="nav-brand">MEMORY PALACE</span>{links.map(l=><NavLink key={l.to} to={l.to} className={({isActive})=>isActive?"active":""}>{l.label}</NavLink>)}</nav><Outlet/></>)}
+export default function AppLayout(){return (<><nav className="global-nav"><NavLink to="/" className="nav-brand">MEMORY PALACE</NavLink>{links.map(l=><NavLink key={l.to} to={l.to} className={({isActive})=>isActive?"active":""}>{l.label}</NavLink>)}</nav><Outlet/></>)}

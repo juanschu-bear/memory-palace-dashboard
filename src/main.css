@@ -106,7 +106,7 @@ body {
 /* Palace building */
 .palace-silhouette {
   position: absolute;
-  bottom: 18%;
+  bottom: 21%;
   left: 50%; transform: translateX(-50%);
   width: 60%; max-width: 780px;
   height: 50%;
@@ -226,7 +226,7 @@ body {
 .stats-bar {
   position: absolute; bottom: 0; width: 100%;
   display: flex; justify-content: center; gap: 4rem;
-  padding: 1.05rem 2rem;
+  padding: 0.75rem 2rem;
   background: rgba(10,10,12,0.8);
   backdrop-filter: blur(12px);
   border-top: 1px solid rgba(232,160,80,0.08);

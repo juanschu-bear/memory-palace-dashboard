@@ -216,6 +216,8 @@ export default function SkillsPage(){
         if(cards && list.length){
           const nodes=list.map(([skill,count])=>`<div class="skill-detail-card"><div class="skill-intensity intensity-${count>2?"strong":count>1?"moderate":"emerging"}"></div><div class="skill-detail-info"><div class="skill-detail-name">${skill.replace("skill/","").replaceAll("-"," ")}</div><div class="skill-detail-avatar">${slug.replaceAll("-"," ")}</div></div><div class="skill-detail-right"><div class="skill-detail-count">${count}</div><div class="skill-detail-label">References</div></div></div>`);
           cards.innerHTML = `<p class="skills-detail-title">Skill inventory</p>${nodes.join("")}`;
+        } else if (cards) {
+          cards.innerHTML = `<p class="skills-detail-title">Skill inventory</p><div class="skill-detail-card"><div class="skill-detail-info"><div class="skill-detail-name">No skills detected yet</div><div class="skill-detail-desc">Diary entries currently contain no skill/ tags. Add tagged reflections to build the constellation.</div></div></div>`;
         }
       }catch{}
     })();

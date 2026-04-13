@@ -166,14 +166,21 @@ export default function DiaryPage(){
         const entries=root.querySelector('.entries');
         const name=slug.split("-").map((s)=>s.charAt(0).toUpperCase()+s.slice(1)).join(" ");
         const h1=root.querySelector('.diary-cover h1');
+        const meta=root.querySelector('.diary-meta');
+        const crumb=root.querySelector('.breadcrumb a:last-of-type');
         if(h1) h1.textContent=`${name}'s Diary`;
+        if(crumb) crumb.textContent=name;
+        if(meta) meta.textContent=`${Number(d?.total ?? d?.entries?.length ?? 0)} entries`;
         if(entries && Array.isArray(d?.entries)){
           entries.innerHTML="";
           d.entries.forEach((e:any)=>{
             const node=document.createElement("article");
             node.className="entry";
             const content=String(e.content||"");
-            node.innerHTML=`<div class="entry-date">${e.date||""}</div><div class="entry-body"><p>${content}</p></div><div class="entry-tags"></div>`;
+            const topic=String(e.topic||"general");
+            node.innerHTML=`<div class="entry-date">${e.date||""}</div><div class="entry-body"><p></p></div><div class="entry-tags"><span class="entry-tag pattern">${topic}</span></div>`;
+            const p = node.querySelector("p");
+            if (p) p.textContent = content;
             entries.appendChild(node);
           });
         }

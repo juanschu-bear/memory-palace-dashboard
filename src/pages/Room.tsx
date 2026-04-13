@@ -218,9 +218,11 @@ export default function RoomPage(){
         if(section && Array.isArray(res?.results)){
           section.innerHTML="";
           res.results.slice(0,20).forEach((r:any)=>{
+            const text = String(r.text || r.summary || r.content || "");
+            const title = text.length > 80 ? `${text.slice(0,80)}...` : (text || "Memory");
             const entry=document.createElement("div");
             entry.className="drawer";
-            entry.innerHTML=`<div class="drawer-top"><div class="drawer-date">${r.date||""}</div><div class="drawer-content"><div class="drawer-title">${r.title||"Memory"}</div><div class="drawer-summary">${r.summary||r.content||""}</div></div><div class="drawer-right"><span class="drawer-contact">${r.contact||r.owner||"Contact"}</span></div></div>`;
+            entry.innerHTML=`<div class="drawer-top"><div class="drawer-date">${r.date||r.source_file||""}</div><div class="drawer-content"><div class="drawer-title">${title}</div><div class="drawer-summary">${text}</div><div class="drawer-tags"><span class="drawer-tag">${r.wing||slug}</span><span class="drawer-tag">${r.room||room}</span></div></div><div class="drawer-right"><span class="drawer-contact">${typeof r.similarity==="number" ? r.similarity.toFixed(2) : ""}</span></div></div>`;
             section.appendChild(entry);
           });
         }

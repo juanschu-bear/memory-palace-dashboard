@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { fetchPalaceStatus } from "@/lib/api";
+import { fetchPalaceStatus, readDiary } from "@/lib/api";
+
+const AVATAR_SLUGS = ["trace-flores","juan-schubert","adri-kastel","prof-brian-cox","clara-fontaine","elena-navarro"];
+const STANDARD_ROOMS = ["business","personal","growth","challenges","wins","behavioral","avatar-diary"];
 
 const HTML = `<!-- Global Navigation -->
 
@@ -157,10 +160,13 @@ export default function EntrancePage(){
       try{
         const s=await fetchPalaceStatus();
         const vals=root.querySelectorAll('.stats-bar .val');
-        const wingKeys=Object.keys(s?.wings||{});
-        const roomCount=typeof s?.rooms==="object" ? Object.keys(s.rooms||{}).length : Number(s?.rooms||0);
-        if(vals[0]) vals[0].textContent=String(wingKeys.length||0);
+        const wingCount = AVATAR_SLUGS.filter((slug)=>typeof s?.wings?.[slug] !== "undefined").length;
+        const roomCount = STANDARD_ROOMS.filter((room)=>typeof s?.rooms?.[room] !== "undefined").length;
+        const diaryTotals = await Promise.all(AVATAR_SLUGS.map(async (slug)=>{ try { const d = await readDiary(slug,100); return Number(d?.total ?? d?.entries?.length ?? 0); } catch { return 0; } }));
+        const diaryCount = diaryTotals.reduce((a,b)=>a+b,0);
+        if(vals[0]) vals[0].textContent=String(wingCount||0);
         if(vals[1]) vals[1].textContent=String(s?.total_drawers||0);
+        if(vals[2]) vals[2].textContent=String(diaryCount||0);
         if(vals[3]) vals[3].textContent=String(roomCount||0);
 
         const corridors=Array.from(root.querySelectorAll('.wing-corridor'));

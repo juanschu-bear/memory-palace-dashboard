@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { fetchContacts, fetchOwners, fetchConversations } from "@/lib/api";
+import { fetchContacts, fetchOwners, fetchConversations, fetchMemories } from "@/lib/api";
 
 const HTML = `<!-- Global Navigation -->
 <nav style="position:fixed;top:0;left:0;width:100%;z-index:50;display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:1rem 2rem;background:rgba(10,10,12,0.75);backdrop-filter:blur(12px);border-bottom:1px solid rgba(232,160,80,0.06)">
@@ -117,7 +117,7 @@ export default function ContactsPage(){
     const root=ref.current; if(!root) return;
     (async()=>{
       try{
-        const [contacts, owners, conversations] = await Promise.all([fetchContacts(), fetchOwners(), fetchConversations()]);
+        const [contacts, owners, conversations, memories] = await Promise.all([fetchContacts(), fetchOwners(), fetchConversations(), fetchMemories()]);
         const list=root.querySelector('.contacts-list');
         const cCount=root.querySelector('.contacts-live-count');
         const sCount=root.querySelector('.sessions-live-count');
@@ -133,6 +133,19 @@ export default function ContactsPage(){
             const node=document.createElement("div");
             node.className="contact-card";
             node.innerHTML=`<div class="contact-initial">${String((c.display_name||c.name||"?")).charAt(0).toUpperCase()}</div><div class="contact-info"><div class="contact-name">${c.display_name||c.name||"Unknown"}</div><div class="contact-detail">${c.notes||c.phone||""}</div><div class="contact-avatars">${ownerNames.map((n:string)=>`<span class="avatar-chip">${n}</span>`).join("")}</div></div><div class="contact-stats"><div class="contact-stat-num">${conv.length}</div><div class="contact-stat-label">Sessions</div><div class="contact-last-seen">Last seen: ${String(c.updated_at||"").slice(0,10)}</div></div>`;
+            node.style.cursor="pointer";
+            node.addEventListener("click",()=>{
+              const sameContactMem=(memories as any[]).filter((m:any)=>m.contact_id===id || m.wa_contact_id===id);
+              let details=node.querySelector(".contact-detail-panel") as HTMLDivElement|null;
+              if(details){ details.remove(); return; }
+              details=document.createElement("div");
+              details.className="contact-detail-panel";
+              details.style.marginTop="0.75rem";
+              details.style.padding="0.75rem";
+              details.style.borderTop="1px solid rgba(184,149,106,0.2)";
+              details.innerHTML=`<div><strong>Conversations:</strong> ${conv.length}</div><div><strong>Memories:</strong> ${sameContactMem.length}</div><div style="margin-top:0.4rem;font-size:0.85rem;opacity:0.8">${sameContactMem.slice(0,3).map((m:any)=>m.summary||m.content||m.text||"").join("<br/>")}</div>`;
+              node.appendChild(details);
+            });
             list.appendChild(node);
           });
         }
