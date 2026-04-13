@@ -24,7 +24,10 @@ export default function App() {
   const [memosSearch, setMemosSearch] = useState<any>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
 
-  const wings = useMemo(() => (!status ? wingsFallback : Object.keys(status.wings).map((w) => w.replace(/^wing_/, "")).sort()), [status]);
+  const wings = useMemo(
+    () => (!status ? wingsFallback : Object.keys(status.wings).map((w) => w.replace(/^wing_/, "")).sort()),
+    [status],
+  );
 
   useEffect(() => {
     fetch(`${API.mempalace}/status`).then((r) => r.json()).then(setStatus).catch(() => null);
@@ -35,7 +38,10 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agent: selectedWing, last_n: 8 }),
-    }).then((r) => r.json()).then((d) => setDiary(d.entries ?? [])).catch(() => setDiary([]));
+    })
+      .then((r) => r.json())
+      .then((d) => setDiary(d.entries ?? []))
+      .catch(() => setDiary([]));
   }, [selectedWing]);
 
   useEffect(() => {
@@ -43,13 +49,19 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: roomSearch, wing: selectedWing, room: selectedRoom }),
-    }).then((r) => r.json()).then((d) => setRoomResults(d.results ?? [])).catch(() => setRoomResults([]));
+    })
+      .then((r) => r.json())
+      .then((d) => setRoomResults(d.results ?? []))
+      .catch(() => setRoomResults([]));
 
     fetch(`${API.memos}/product/search`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ user_id: "anima-cf-test", query: roomSearch }),
-    }).then((r) => r.json()).then(setMemosSearch).catch(() => setMemosSearch(null));
+    })
+      .then((r) => r.json())
+      .then(setMemosSearch)
+      .catch(() => setMemosSearch(null));
   }, [roomSearch, selectedWing, selectedRoom]);
 
   useEffect(() => {
@@ -63,15 +75,20 @@ export default function App() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="absolute inset-0 bg-gradient-to-b from-zinc-900/40 via-zinc-950 to-black" />
+    <div className="min-h-screen bg-slate-950 text-zinc-100">
       <div className="relative z-10 mx-auto max-w-7xl p-6">
         <h1 className="text-3xl font-semibold tracking-wide text-amber-100">Memory Palace Dashboard</h1>
         <p className="mt-1 text-sm text-amber-300/80">Walk the palace. Enter wings. Open rooms. Read diaries.</p>
 
         <nav className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-7">
           {(["entrance", "wing", "room", "diary", "tunnels", "contacts", "skills"] as View[]).map((v) => (
-            <button key={v} onClick={() => setView(v)} className={`rounded-md border px-3 py-2 text-sm capitalize transition ${view === v ? "border-amber-300 bg-amber-950/60" : "border-zinc-700 bg-zinc-900/50 hover:bg-zinc-800"}`}>
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`rounded-md border px-3 py-2 text-sm capitalize transition ${
+                view === v ? "border-amber-300 bg-amber-950/60" : "border-zinc-700 bg-zinc-900/50 hover:bg-zinc-800"
+              }`}
+            >
               {v}
             </button>
           ))}
@@ -79,21 +96,59 @@ export default function App() {
 
         <div className="mt-6 rounded-xl border border-zinc-800 bg-black/40 p-5 shadow-2xl backdrop-blur">
           {view === "entrance" && (
-            <section>
-              <h2 className="text-xl text-amber-100">Palace Entrance</h2>
-              <div className="mt-4 grid gap-4 md:grid-cols-4">
-                <Card label="Wings" value={wings.length} />
-                <Card label="Total Memories" value={status?.total_drawers ?? "..."} />
-                <Card label="Diary Entries" value={diary.length} />
-                <Card label="Recent Activity" value={roomResults.length} />
-              </div>
-              <div className="mt-6 grid gap-3 md:grid-cols-3">
-                {wings.map((w) => (
-                  <button key={w} onClick={() => { setSelectedWing(w); setView("wing"); }} className="rounded-lg border border-amber-800/40 bg-zinc-900 p-4 text-left transition hover:-translate-y-0.5 hover:border-amber-500">
-                    <div className="text-base font-medium text-amber-100">{w}</div>
-                    <div className="mt-1 text-xs text-zinc-400">Enter corridor</div>
-                  </button>
-                ))}
+            <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 via-[#111827] to-slate-950 p-6 md:p-10">
+              <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-amber-300/20 blur-3xl" />
+              <div className="pointer-events-none absolute -right-24 bottom-0 h-72 w-72 rounded-full bg-cyan-300/20 blur-3xl" />
+
+              <div className="relative z-10 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.25em] text-amber-200/80">Palace Gateway</p>
+                  <h2 className="mt-3 max-w-2xl text-4xl font-semibold leading-tight text-white md:text-5xl">Enter the Memory Palace</h2>
+                  <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-300 md:text-base">
+                    Choose a wing, step through its corridor, and open rooms where memories, diaries, and links come alive.
+                    Designed for fast orientation and deep exploration.
+                  </p>
+
+                  <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                    <Card label="Wings" value={wings.length} />
+                    <Card label="Total Memories" value={status?.total_drawers ?? "..."} />
+                    <Card label="Diary Entries" value={diary.length} />
+                    <Card label="Recent Activity" value={roomResults.length} />
+                  </div>
+
+                  <div className="mt-8 grid gap-3 md:grid-cols-2">
+                    {wings.slice(0, 6).map((w) => (
+                      <button
+                        key={w}
+                        onClick={() => {
+                          setSelectedWing(w);
+                          setView("wing");
+                        }}
+                        className="group relative overflow-hidden rounded-xl border border-white/15 bg-white/5 p-4 text-left transition hover:-translate-y-0.5 hover:border-amber-300/60 hover:bg-white/10"
+                      >
+                        <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-amber-300 to-cyan-300 opacity-50 transition group-hover:opacity-100" />
+                        <div className="pl-3">
+                          <div className="text-base font-medium text-white">{w}</div>
+                          <div className="mt-1 text-xs text-slate-300">Enter corridor</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <aside className="rounded-2xl border border-white/10 bg-black/30 p-5 backdrop-blur">
+                  <h3 className="text-sm uppercase tracking-[0.2em] text-slate-300">Recent Activity</h3>
+                  <div className="mt-4 space-y-3">
+                    {diary.slice(0, 5).map((d, i) => (
+                      <article key={i} className="rounded-lg border border-white/10 bg-white/5 p-3">
+                        <div className="text-xs text-amber-200/90">{d.date || d.timestamp || "timestamp"}</div>
+                        <div className="mt-1 text-sm font-medium text-white">{d.topic || "Diary note"}</div>
+                        <p className="mt-1 line-clamp-2 text-xs text-slate-300">{d.content || "No content"}</p>
+                      </article>
+                    ))}
+                    {diary.length === 0 && <p className="text-xs text-slate-400">No diary activity yet.</p>}
+                  </div>
+                </aside>
               </div>
             </section>
           )}
