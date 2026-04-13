@@ -6,9 +6,9 @@ const HTML = `<!-- Global Navigation -->
 <nav style="position:fixed;top:0;left:0;width:100%;z-index:50;display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:1rem 2rem;background:rgba(10,10,12,0.75);backdrop-filter:blur(12px);border-bottom:1px solid rgba(232,160,80,0.06)">
   <a href="/" style="font-family:'Cormorant Garamond',serif;font-size:0.85rem;letter-spacing:0.12em;color:rgba(232,160,80,0.6);text-decoration:none;margin-right:1.5rem;padding-right:1.5rem;border-right:1px solid rgba(232,160,80,0.1)">Memory Palace</a>
   <a href="/" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Entrance</a>
-  <a href="02-wing.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Wings</a>
-  <a href="03-room.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Rooms</a>
-  <a href="04-diary.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Diary</a>
+  <a href="/wing/trace-flores" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Wings</a>
+  <a href="/wing/trace-flores/room/business" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Rooms</a>
+  <a href="/wing/trace-flores/diary" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Diary</a>
   <a href="/tunnels" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Tunnels</a>
   <a href="/contacts" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Contacts</a>
   <a href="/skills" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Skills</a>
@@ -66,7 +66,7 @@ const HTML = `<!-- Global Navigation -->
 
     <div class="rooms-grid">
 
-      <div class="room-door" onclick="window.location.href='room-business.html'">
+      <div class="room-door" onclick="window.location.href='/wing/trace-flores/room/business'">
         <div class="door-frame">
           <div class="door-interior"></div>
           <div class="door-handle"></div>
@@ -81,7 +81,7 @@ const HTML = `<!-- Global Navigation -->
         </div>
       </div>
 
-      <div class="room-door" onclick="window.location.href='room-personal.html'">
+      <div class="room-door" onclick="window.location.href='/wing/trace-flores/room/personal'">
         <div class="door-frame">
           <div class="door-interior"></div>
           <div class="door-handle"></div>
@@ -96,7 +96,7 @@ const HTML = `<!-- Global Navigation -->
         </div>
       </div>
 
-      <div class="room-door" onclick="window.location.href='room-growth.html'">
+      <div class="room-door" onclick="window.location.href='/wing/trace-flores/room/growth'">
         <div class="door-frame">
           <div class="door-interior"></div>
           <div class="door-handle"></div>
@@ -111,7 +111,7 @@ const HTML = `<!-- Global Navigation -->
         </div>
       </div>
 
-      <div class="room-door" onclick="window.location.href='room-challenges.html'">
+      <div class="room-door" onclick="window.location.href='/wing/trace-flores/room/challenges'">
         <div class="door-frame">
           <div class="door-interior"></div>
           <div class="door-handle"></div>
@@ -126,7 +126,7 @@ const HTML = `<!-- Global Navigation -->
         </div>
       </div>
 
-      <div class="room-door" onclick="window.location.href='room-wins.html'">
+      <div class="room-door" onclick="window.location.href='/wing/trace-flores/room/wins'">
         <div class="door-frame">
           <div class="door-interior"></div>
           <div class="door-handle"></div>
@@ -141,7 +141,7 @@ const HTML = `<!-- Global Navigation -->
         </div>
       </div>
 
-      <div class="room-door" onclick="window.location.href='room-behavioral.html'">
+      <div class="room-door" onclick="window.location.href='/wing/trace-flores/room/behavioral'">
         <div class="door-frame">
           <div class="door-interior"></div>
           <div class="door-handle"></div>
@@ -156,7 +156,7 @@ const HTML = `<!-- Global Navigation -->
         </div>
       </div>
 
-      <div class="room-door diary-door" onclick="window.location.href='diary-trace.html'">
+      <div class="room-door diary-door" onclick="window.location.href='/wing/trace-flores/diary'">
         <div class="door-frame">
           <div class="door-interior"></div>
           <div class="door-handle"></div>
@@ -180,7 +180,7 @@ const HTML = `<!-- Global Navigation -->
     <p class="diary-label">Trace's latest reflection</p>
     <p class="diary-quote">"When someone switches topics fast, they are avoiding something. I now skip the surface and go straight to what they are protecting."</p>
     <p class="diary-date">April 13, 2026</p>
-    <a class="diary-link" onclick="window.location.href='diary-trace.html'">Read full diary</a>
+    <a class="diary-link" onclick="window.location.href='/wing/trace-flores/diary'">Read full diary</a>
   </section>
 
 </div>
