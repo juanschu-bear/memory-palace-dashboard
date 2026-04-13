@@ -23,11 +23,9 @@ export default function App() {
   const [roomResults, setRoomResults] = useState<any[]>([]);
   const [memosSearch, setMemosSearch] = useState<any>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [mouse, setMouse] = useState({ x: 50, y: 50 });
 
-  const wings = useMemo(
-    () => (!status ? wingsFallback : Object.keys(status.wings).map((w) => w.replace(/^wing_/, "")).sort()),
-    [status],
-  );
+  const wings = useMemo(() => (!status ? wingsFallback : Object.keys(status.wings).map((w) => w.replace(/^wing_/, "")).sort()), [status]);
 
   useEffect(() => {
     fetch(`${API.mempalace}/status`).then((r) => r.json()).then(setStatus).catch(() => null);
@@ -38,10 +36,7 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agent: selectedWing, last_n: 8 }),
-    })
-      .then((r) => r.json())
-      .then((d) => setDiary(d.entries ?? []))
-      .catch(() => setDiary([]));
+    }).then((r) => r.json()).then((d) => setDiary(d.entries ?? [])).catch(() => setDiary([]));
   }, [selectedWing]);
 
   useEffect(() => {
@@ -49,19 +44,13 @@ export default function App() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: roomSearch, wing: selectedWing, room: selectedRoom }),
-    })
-      .then((r) => r.json())
-      .then((d) => setRoomResults(d.results ?? []))
-      .catch(() => setRoomResults([]));
+    }).then((r) => r.json()).then((d) => setRoomResults(d.results ?? [])).catch(() => setRoomResults([]));
 
     fetch(`${API.memos}/product/search`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ user_id: "anima-cf-test", query: roomSearch }),
-    })
-      .then((r) => r.json())
-      .then(setMemosSearch)
-      .catch(() => setMemosSearch(null));
+    }).then((r) => r.json()).then(setMemosSearch).catch(() => setMemosSearch(null));
   }, [roomSearch, selectedWing, selectedRoom]);
 
   useEffect(() => {
@@ -74,21 +63,28 @@ export default function App() {
       .catch(() => setContacts([]));
   }, []);
 
+  const mx = (mouse.x - 50) / 50;
+  const my = (mouse.y - 50) / 50;
+
   return (
-    <div className="min-h-screen bg-slate-950 text-zinc-100">
+    <div className="min-h-screen bg-[#070915] text-zinc-100">
+      <style>{`
+        @keyframes floaty { 0%,100% {transform: translateY(0px)} 50% {transform: translateY(-8px)} }
+        @keyframes pulsePortal { 0%,100% { box-shadow: 0 0 0 0 rgba(253,224,71,0.14), 0 0 40px 4px rgba(34,211,238,0.12);} 50% { box-shadow: 0 0 0 10px rgba(253,224,71,0.03), 0 0 80px 10px rgba(34,211,238,0.2);} }
+        @keyframes drift { 0% {transform: translateX(-5%)} 50% {transform: translateX(5%)} 100% {transform: translateX(-5%)} }
+        .portal-pulse { animation: pulsePortal 4.8s ease-in-out infinite; }
+        .particle-layer { animation: drift 18s ease-in-out infinite; }
+        .floaty { animation: floaty 6s ease-in-out infinite; }
+        .stagger-in { animation: floaty 7s ease-in-out infinite; }
+      `}</style>
+
       <div className="relative z-10 mx-auto max-w-7xl p-6">
         <h1 className="text-3xl font-semibold tracking-wide text-amber-100">Memory Palace Dashboard</h1>
         <p className="mt-1 text-sm text-amber-300/80">Walk the palace. Enter wings. Open rooms. Read diaries.</p>
 
         <nav className="mt-6 grid grid-cols-2 gap-2 md:grid-cols-7">
           {(["entrance", "wing", "room", "diary", "tunnels", "contacts", "skills"] as View[]).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className={`rounded-md border px-3 py-2 text-sm capitalize transition ${
-                view === v ? "border-amber-300 bg-amber-950/60" : "border-zinc-700 bg-zinc-900/50 hover:bg-zinc-800"
-              }`}
-            >
+            <button key={v} onClick={() => setView(v)} className={`rounded-md border px-3 py-2 text-sm capitalize transition ${view === v ? "border-amber-300 bg-amber-950/60" : "border-zinc-700 bg-zinc-900/50 hover:bg-zinc-800"}`}>
               {v}
             </button>
           ))}
@@ -96,17 +92,22 @@ export default function App() {
 
         <div className="mt-6 rounded-xl border border-zinc-800 bg-black/40 p-5 shadow-2xl backdrop-blur">
           {view === "entrance" && (
-            <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-slate-900 via-[#111827] to-slate-950 p-6 md:p-10">
-              <div className="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-amber-300/20 blur-3xl" />
-              <div className="pointer-events-none absolute -right-24 bottom-0 h-72 w-72 rounded-full bg-cyan-300/20 blur-3xl" />
+            <section
+              className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#11152b] via-[#0d1a37] to-[#070915] p-6 md:p-10"
+              onMouseMove={(e) => {
+                const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                setMouse({ x: ((e.clientX - rect.left) / rect.width) * 100, y: ((e.clientY - rect.top) / rect.height) * 100 });
+              }}
+            >
+              <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(250,204,21,0.15),transparent_35%),radial-gradient(circle_at_80%_70%,rgba(56,189,248,0.18),transparent_42%)] particle-layer" />
+              <div className="pointer-events-none absolute inset-0 opacity-40" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)", backgroundSize: "48px 48px" }} />
 
-              <div className="relative z-10 grid gap-8 lg:grid-cols-[1.25fr_0.75fr]">
+              <div className="relative z-10 grid gap-8 lg:grid-cols-[1.15fr_0.85fr]">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.25em] text-amber-200/80">Palace Gateway</p>
-                  <h2 className="mt-3 max-w-2xl text-4xl font-semibold leading-tight text-white md:text-5xl">Enter the Memory Palace</h2>
+                  <p className="text-xs uppercase tracking-[0.26em] text-amber-200/80">Palace Entrance</p>
+                  <h2 className="mt-3 max-w-2xl text-4xl font-semibold leading-tight text-white md:text-6xl">Step Into The Memory Palace</h2>
                   <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-300 md:text-base">
-                    Choose a wing, step through its corridor, and open rooms where memories, diaries, and links come alive.
-                    Designed for fast orientation and deep exploration.
+                    A living gateway into wings, rooms, and diaries. Spatial, cinematic, and still clear enough to use in seconds.
                   </p>
 
                   <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -117,16 +118,18 @@ export default function App() {
                   </div>
 
                   <div className="mt-8 grid gap-3 md:grid-cols-2">
-                    {wings.slice(0, 6).map((w) => (
+                    {wings.slice(0, 6).map((w, idx) => (
                       <button
                         key={w}
                         onClick={() => {
                           setSelectedWing(w);
                           setView("wing");
                         }}
-                        className="group relative overflow-hidden rounded-xl border border-white/15 bg-white/5 p-4 text-left transition hover:-translate-y-0.5 hover:border-amber-300/60 hover:bg-white/10"
+                        className="group relative overflow-hidden rounded-xl border border-white/20 bg-white/5 p-4 text-left transition duration-300 hover:-translate-y-1 hover:scale-[1.01] hover:border-amber-300/70 hover:bg-white/10"
+                        style={{ animationDelay: `${idx * 120}ms` }}
                       >
-                        <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-amber-300 to-cyan-300 opacity-50 transition group-hover:opacity-100" />
+                        <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-amber-300 to-cyan-300 opacity-70 transition group-hover:opacity-100" />
+                        <div className="absolute -right-10 -top-10 h-20 w-20 rounded-full bg-cyan-300/20 blur-2xl transition group-hover:scale-125" />
                         <div className="pl-3">
                           <div className="text-base font-medium text-white">{w}</div>
                           <div className="mt-1 text-xs text-slate-300">Enter corridor</div>
@@ -136,17 +139,23 @@ export default function App() {
                   </div>
                 </div>
 
-                <aside className="rounded-2xl border border-white/10 bg-black/30 p-5 backdrop-blur">
-                  <h3 className="text-sm uppercase tracking-[0.2em] text-slate-300">Recent Activity</h3>
-                  <div className="mt-4 space-y-3">
+                <aside className="relative rounded-2xl border border-white/15 bg-black/30 p-5 backdrop-blur">
+                  <div
+                    className="pointer-events-none absolute left-1/2 top-10 h-28 w-28 -translate-x-1/2 rounded-full border border-amber-200/40 bg-gradient-to-br from-amber-200/20 to-cyan-300/20 portal-pulse"
+                    style={{ transform: `translate(-50%, 0) translate(${mx * 8}px, ${my * 6}px)` }}
+                  />
+                  <div className="pointer-events-none absolute left-1/2 top-24 h-56 w-40 -translate-x-1/2 rounded-[999px_999px_20px_20px] border border-white/15 bg-gradient-to-b from-white/10 to-transparent floaty" />
+
+                  <h3 className="relative z-10 text-sm uppercase tracking-[0.2em] text-slate-300">Recent Activity</h3>
+                  <div className="relative z-10 mt-4 space-y-3">
                     {diary.slice(0, 5).map((d, i) => (
-                      <article key={i} className="rounded-lg border border-white/10 bg-white/5 p-3">
+                      <article key={i} className="rounded-lg border border-white/10 bg-white/5 p-3 transition hover:border-cyan-300/50 hover:bg-white/10">
                         <div className="text-xs text-amber-200/90">{d.date || d.timestamp || "timestamp"}</div>
                         <div className="mt-1 text-sm font-medium text-white">{d.topic || "Diary note"}</div>
                         <p className="mt-1 line-clamp-2 text-xs text-slate-300">{d.content || "No content"}</p>
                       </article>
                     ))}
-                    {diary.length === 0 && <p className="text-xs text-slate-400">No diary activity yet.</p>}
+                    {diary.length === 0 && <p className="text-xs text-slate-300">No diary activity yet.</p>}
                   </div>
                 </aside>
               </div>
@@ -186,7 +195,7 @@ export default function App() {
 }
 
 function Card({ label, value }: { label: string; value: string | number }) {
-  return <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-4"><div className="text-xs uppercase tracking-widest text-zinc-400">{label}</div><div className="mt-2 text-2xl font-semibold text-amber-100">{value}</div></div>;
+  return <div className="rounded-lg border border-zinc-700/80 bg-zinc-900/40 p-4"><div className="text-xs uppercase tracking-widest text-zinc-300">{label}</div><div className="mt-2 text-2xl font-semibold text-amber-100">{value}</div></div>;
 }
 
 function Box({ title, data }: { title: string; data: any }) {
