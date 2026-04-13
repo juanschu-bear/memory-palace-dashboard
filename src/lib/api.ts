@@ -1,11 +1,7 @@
 const MEMPALACE_URL = 'https://mempalace.onioko.com'
 const MEMOS_URL = 'https://memos-local.onioko.com'
 const SUPABASE_URL = 'https://wofklmwbokdjoqlstjmy.supabase.co'
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvZmtsbXdib2tkam9xbHN0am15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzgzMjkxMjUsImV4cCI6MjA1MzkwNTEyNX0.placeholder'
-
-// ============================================
-// MemPalace API
-// ============================================
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvZmtsbXdib2tkam9xbHN0am15Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzgzMjkxMjUsImV4cCI6MjA1MzkwNTEyNX0.4kLFGECHIjMmNMM_nMAFNEos4fhBdNzBmBOjSCPTAXs'
 
 export async function fetchPalaceStatus() {
   try {
@@ -42,10 +38,6 @@ export async function readDiary(agent: string, lastN: number = 10) {
   }
 }
 
-// ============================================
-// MemOS Local API
-// ============================================
-
 export async function searchMemOS(userId: string, query: string) {
   try {
     const res = await fetch(`${MEMOS_URL}/product/search`, {
@@ -72,17 +64,13 @@ export async function getMemOSAll(userId: string) {
   }
 }
 
-// ============================================
-// Supabase REST API
-// ============================================
-
 async function supabaseGet(table: string, params?: string) {
   try {
     const url = `${SUPABASE_URL}/rest/v1/${table}${params ? '?' + params : ''}`
     const res = await fetch(url, {
       headers: {
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       },
     })
     return await res.json()
@@ -110,10 +98,6 @@ export async function fetchConversationMemory(contactId?: string) {
   return supabaseGet('wa_conversation_memory', params)
 }
 
-// ============================================
-// Avatar definitions (static for now)
-// ============================================
-
 export interface Avatar {
   slug: string
   name: string
@@ -131,18 +115,18 @@ export const AVATARS: Avatar[] = [
 ]
 
 export const ROOMS = [
-  'business', 'personal', 'growth', 'challenges', 'wins', 'behavioral', 'avatar-diary'
+  'business', 'personal', 'growth', 'challenges', 'wins', 'behavioral', 'avatar-diary',
 ] as const
 
 export type RoomName = typeof ROOMS[number]
 
 export const ROOM_DESCRIPTIONS: Record<RoomName, string> = {
-  'business': 'Strategy, launches, pricing, revenue, scaling, market positioning, client acquisition, competitive landscape.',
-  'personal': 'Identity, self-image, inner conflicts, values, beliefs, relationships, vulnerability, authenticity, boundaries.',
-  'growth': 'Development, progress, skill acquisition, habit formation, mindset shifts, transformation, confidence building.',
-  'challenges': 'Problems, mental blocks, fears, procrastination, self-sabotage, imposter syndrome, overwhelm, setbacks.',
-  'wins': 'Achievements, celebrations, revenue milestones, goals reached, courage moments, overcoming fears, successful launches.',
-  'behavioral': 'OPM perception observations, voice patterns, micro-expressions, emotional baselines, congruence, stress indicators.',
+  business: 'Strategy, launches, pricing, revenue, scaling, market positioning, client acquisition, competitive landscape.',
+  personal: 'Identity, self-image, inner conflicts, values, beliefs, relationships, vulnerability, authenticity, boundaries.',
+  growth: 'Development, progress, skill acquisition, habit formation, mindset shifts, transformation, confidence building.',
+  challenges: 'Problems, mental blocks, fears, procrastination, self-sabotage, imposter syndrome, overwhelm, setbacks.',
+  wins: 'Achievements, celebrations, revenue milestones, goals reached, courage moments, overcoming fears, successful launches.',
+  behavioral: 'OPM perception observations, voice patterns, micro-expressions, emotional baselines, congruence, stress indicators.',
   'avatar-diary': 'The avatar own reflections, learnings, acquired skills, recognized patterns, evolved strategies, professional growth.',
 }
 
