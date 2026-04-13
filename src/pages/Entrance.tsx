@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { fetchPalaceStatus, searchPalace, readDiary, fetchContacts, fetchMemories, fetchConversationMemory } from "@/lib/api";
+import { fetchPalaceStatus } from "@/lib/api";
 
 const HTML = `<!-- Global Navigation -->
 
@@ -154,10 +154,25 @@ export default function EntrancePage(){
   useEffect(()=>{
     const root=ref.current; if(!root) return;
     (async()=>{
-      try{const s=await fetchPalaceStatus();const vals=root.querySelectorAll('.stats-bar .text-xl'); if(vals[0]) vals[0].textContent=String(Object.keys(s?.wings||{}).length||0); if(vals[1]) vals[1].textContent=String(s?.total_drawers||0);}catch{}
-      try{const slug=(params.slug as string)||'trace-flores'; const room=(params.room as string)||'business'; const res=await searchPalace('pricing',slug,room); const list=root.querySelector('.room-live-list'); if(list && Array.isArray(res?.results)){ list.innerHTML=''; res.results.slice(0,8).forEach((r:any)=>{const el=document.createElement('div'); el.className='drawer-item'; el.innerHTML=`<div class="flex justify-between items-start gap-8"><div class="text-[0.6rem] tracking-[0.1em] min-w-[90px] pt-1">${r.date||''}</div><div class="flex-1"><div class="drawer-title">${r.title||r.summary||'Memory'}</div><div class="text-sm font-light leading-relaxed">${r.summary||r.content||''}</div></div></div>`; list.appendChild(el);}); }}catch{}
-      try{const d=await readDiary((params.slug as string)||'trace-flores',10); const n=root.querySelector('.diary-live-count'); if(n) n.textContent=String(Array.isArray(d?.entries)?d.entries.length:0);}catch{}
-      try{const [c,m,v]=await Promise.all([fetchContacts(),fetchMemories(),fetchConversationMemory()]); const c1=root.querySelector('.contacts-live-count'); const c2=root.querySelector('.sessions-live-count'); if(c1) c1.textContent=String(Array.isArray(c)?c.length:0); if(c2) c2.textContent=String((Array.isArray(m)?m.length:0)+(Array.isArray(v)?v.length:0));}catch{}
+      try{
+        const s=await fetchPalaceStatus();
+        const vals=root.querySelectorAll('.stats-bar .val');
+        const wingKeys=Object.keys(s?.wings||{});
+        const roomCount=typeof s?.rooms==="object" ? Object.keys(s.rooms||{}).length : Number(s?.rooms||0);
+        if(vals[0]) vals[0].textContent=String(wingKeys.length||0);
+        if(vals[1]) vals[1].textContent=String(s?.total_drawers||0);
+        if(vals[3]) vals[3].textContent=String(roomCount||0);
+
+        const corridors=Array.from(root.querySelectorAll('.wing-corridor'));
+        corridors.forEach((c)=>{
+          const href=(c as HTMLAnchorElement).getAttribute("href")||"";
+          const slug=href.split("/wing/")[1]||"";
+          const key=slug.replace(/-/g,"_");
+          const count=(s?.wings?.[slug] ?? s?.wings?.[key] ?? s?.wings?.[`wing_${key}`] ?? 0);
+          const label=c.querySelector('.corridor-count');
+          if(label) label.textContent=`${count} Memories`;
+        });
+      }catch{}
     })();
   },[params.slug,params.room]);
   return <div ref={ref} dangerouslySetInnerHTML={{__html:HTML}} />;

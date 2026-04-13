@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { fetchPalaceStatus, searchPalace, readDiary, fetchContacts, fetchMemories, fetchConversationMemory } from "@/lib/api";
+import { fetchContacts, fetchOwners, fetchConversations } from "@/lib/api";
 
 const HTML = `<!-- Global Navigation -->
 <nav style="position:fixed;top:0;left:0;width:100%;z-index:50;display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:1rem 2rem;background:rgba(10,10,12,0.75);backdrop-filter:blur(12px);border-bottom:1px solid rgba(232,160,80,0.06)">
@@ -116,10 +116,27 @@ export default function ContactsPage(){
     document.body.classList.add("light-contacts");
     const root=ref.current; if(!root) return;
     (async()=>{
-      try{const s=await fetchPalaceStatus();const vals=root.querySelectorAll('.stats-bar .text-xl'); if(vals[0]) vals[0].textContent=String(Object.keys(s?.wings||{}).length||0); if(vals[1]) vals[1].textContent=String(s?.total_drawers||0);}catch{}
-      try{const slug=(params.slug as string)||'trace-flores'; const room=(params.room as string)||'business'; const res=await searchPalace('pricing',slug,room); const list=root.querySelector('.room-live-list'); if(list && Array.isArray(res?.results)){ list.innerHTML=''; res.results.slice(0,8).forEach((r:any)=>{const el=document.createElement('div'); el.className='drawer-item'; el.innerHTML=`<div class="flex justify-between items-start gap-8"><div class="text-[0.6rem] tracking-[0.1em] min-w-[90px] pt-1">${r.date||''}</div><div class="flex-1"><div class="drawer-title">${r.title||r.summary||'Memory'}</div><div class="text-sm font-light leading-relaxed">${r.summary||r.content||''}</div></div></div>`; list.appendChild(el);}); }}catch{}
-      try{const d=await readDiary((params.slug as string)||'trace-flores',10); const n=root.querySelector('.diary-live-count'); if(n) n.textContent=String(Array.isArray(d?.entries)?d.entries.length:0);}catch{}
-      try{const [c,m,v]=await Promise.all([fetchContacts(),fetchMemories(),fetchConversationMemory()]); const c1=root.querySelector('.contacts-live-count'); const c2=root.querySelector('.sessions-live-count'); if(c1) c1.textContent=String(Array.isArray(c)?c.length:0); if(c2) c2.textContent=String((Array.isArray(m)?m.length:0)+(Array.isArray(v)?v.length:0));}catch{}
+      try{
+        const [contacts, owners, conversations] = await Promise.all([fetchContacts(), fetchOwners(), fetchConversations()]);
+        const list=root.querySelector('.contacts-list');
+        const cCount=root.querySelector('.contacts-live-count');
+        const sCount=root.querySelector('.sessions-live-count');
+        if(cCount) cCount.textContent=String(Array.isArray(contacts)?contacts.length:0);
+        if(sCount) sCount.textContent=String(Array.isArray(conversations)?conversations.length:0);
+        if(list && Array.isArray(contacts)){
+          list.innerHTML="";
+          contacts.slice(0,50).forEach((c:any)=>{
+            const id = c.id ?? c.contact_id;
+            const conv=(conversations as any[]).filter((x:any)=>x.contact_id===id || x.wa_contact_id===id);
+            const ownerIds=new Set(conv.map((x:any)=>x.owner_id).filter(Boolean));
+            const ownerNames=(owners as any[]).filter((o:any)=>ownerIds.has(o.id)).map((o:any)=>o.display_name||o.name);
+            const node=document.createElement("div");
+            node.className="contact-card";
+            node.innerHTML=`<div class="contact-initial">${String((c.display_name||c.name||"?")).charAt(0).toUpperCase()}</div><div class="contact-info"><div class="contact-name">${c.display_name||c.name||"Unknown"}</div><div class="contact-detail">${c.notes||c.phone||""}</div><div class="contact-avatars">${ownerNames.map((n:string)=>`<span class="avatar-chip">${n}</span>`).join("")}</div></div><div class="contact-stats"><div class="contact-stat-num">${conv.length}</div><div class="contact-stat-label">Sessions</div><div class="contact-last-seen">Last seen: ${String(c.updated_at||"").slice(0,10)}</div></div>`;
+            list.appendChild(node);
+          });
+        }
+      }catch{}
     })();
     return ()=>{ document.body.classList.remove("light-contacts"); };
   },[params.slug,params.room]);

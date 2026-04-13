@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { fetchPalaceStatus, searchPalace, readDiary, fetchContacts, fetchMemories, fetchConversationMemory } from "@/lib/api";
+import { readDiary } from "@/lib/api";
 
 const HTML = `<!-- Global Navigation -->
 <nav style="position:fixed;top:0;left:0;width:100%;z-index:50;display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:1rem 2rem;background:rgba(10,10,12,0.75);backdrop-filter:blur(12px);border-bottom:1px solid rgba(232,160,80,0.06)">
@@ -160,10 +160,24 @@ export default function DiaryPage(){
     document.body.classList.add("light-diary");
     const root=ref.current; if(!root) return;
     (async()=>{
-      try{const s=await fetchPalaceStatus();const vals=root.querySelectorAll('.stats-bar .text-xl'); if(vals[0]) vals[0].textContent=String(Object.keys(s?.wings||{}).length||0); if(vals[1]) vals[1].textContent=String(s?.total_drawers||0);}catch{}
-      try{const slug=(params.slug as string)||'trace-flores'; const room=(params.room as string)||'business'; const res=await searchPalace('pricing',slug,room); const list=root.querySelector('.room-live-list'); if(list && Array.isArray(res?.results)){ list.innerHTML=''; res.results.slice(0,8).forEach((r:any)=>{const el=document.createElement('div'); el.className='drawer-item'; el.innerHTML=`<div class="flex justify-between items-start gap-8"><div class="text-[0.6rem] tracking-[0.1em] min-w-[90px] pt-1">${r.date||''}</div><div class="flex-1"><div class="drawer-title">${r.title||r.summary||'Memory'}</div><div class="text-sm font-light leading-relaxed">${r.summary||r.content||''}</div></div></div>`; list.appendChild(el);}); }}catch{}
-      try{const d=await readDiary((params.slug as string)||'trace-flores',10); const n=root.querySelector('.diary-live-count'); if(n) n.textContent=String(Array.isArray(d?.entries)?d.entries.length:0);}catch{}
-      try{const [c,m,v]=await Promise.all([fetchContacts(),fetchMemories(),fetchConversationMemory()]); const c1=root.querySelector('.contacts-live-count'); const c2=root.querySelector('.sessions-live-count'); if(c1) c1.textContent=String(Array.isArray(c)?c.length:0); if(c2) c2.textContent=String((Array.isArray(m)?m.length:0)+(Array.isArray(v)?v.length:0));}catch{}
+      try{
+        const slug=(params.slug as string)||'trace-flores';
+        const d=await readDiary(slug,20);
+        const entries=root.querySelector('.entries');
+        const name=slug.split("-").map((s)=>s.charAt(0).toUpperCase()+s.slice(1)).join(" ");
+        const h1=root.querySelector('.diary-cover h1');
+        if(h1) h1.textContent=`${name}'s Diary`;
+        if(entries && Array.isArray(d?.entries)){
+          entries.innerHTML="";
+          d.entries.forEach((e:any)=>{
+            const node=document.createElement("article");
+            node.className="entry";
+            const content=String(e.content||"");
+            node.innerHTML=`<div class="entry-date">${e.date||""}</div><div class="entry-body"><p>${content}</p></div><div class="entry-tags"></div>`;
+            entries.appendChild(node);
+          });
+        }
+      }catch{}
     })();
     return ()=>{ document.body.classList.remove("light-diary"); };
   },[params.slug,params.room]);
