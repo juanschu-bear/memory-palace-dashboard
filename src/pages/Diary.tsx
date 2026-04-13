@@ -1,93 +1,169 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { AVATARS, readDiary } from '@/lib/api'
+import { useEffect, useRef } from "react";
+import { useParams } from "react-router-dom";
+import { fetchPalaceStatus, searchPalace, readDiary, fetchContacts, fetchMemories, fetchConversationMemory } from "@/lib/api";
 
-type DiaryEntry = { date?: string; content?: string; topic?: string; timestamp?: string }
+const HTML = `<!-- Global Navigation -->
+<nav style="position:fixed;top:0;left:0;width:100%;z-index:50;display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:1rem 2rem;background:rgba(10,10,12,0.75);backdrop-filter:blur(12px);border-bottom:1px solid rgba(232,160,80,0.06)">
+  <a href="/" style="font-family:'Cormorant Garamond',serif;font-size:0.85rem;letter-spacing:0.12em;color:rgba(232,160,80,0.6);text-decoration:none;margin-right:1.5rem;padding-right:1.5rem;border-right:1px solid rgba(232,160,80,0.1)">Memory Palace</a>
+  <a href="/" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Entrance</a>
+  <a href="02-wing.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Wings</a>
+  <a href="03-room.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Rooms</a>
+  <a href="04-diary.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Diary</a>
+  <a href="/tunnels" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Tunnels</a>
+  <a href="/contacts" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Contacts</a>
+  <a href="/skills" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Skills</a>
+</nav>
 
-const TAG_COLORS: Record<string, { border: string; color: string; bg: string }> = {
-  skill: { border: 'rgba(107,138,90,0.2)', color: 'rgb(107,138,90)', bg: 'rgba(107,138,90,0.06)' },
-  pattern: { border: 'rgba(138,107,90,0.2)', color: 'rgb(138,107,90)', bg: 'rgba(138,107,90,0.06)' },
-  contact: { border: 'rgba(90,107,138,0.2)', color: 'rgb(90,107,138)', bg: 'rgba(90,107,138,0.06)' },
-}
 
-export default function DiaryPage() {
-  const { avatarSlug } = useParams<{ avatarSlug: string }>()
-  const avatar = AVATARS.find((a) => a.slug === avatarSlug) ?? AVATARS[0]
-  const [activeFilter, setActiveFilter] = useState<string | null>(null)
-  const [entries, setEntries] = useState<DiaryEntry[]>([])
+<!-- Breadcrumb -->
+<nav class="breadcrumb">
+  <a>Palace</a>
+  <span class="sep">/</span>
+  <a>Trace Flores</a>
+  <span class="sep">/</span>
+  <span class="current">Diary</span>
+</nav>
 
-  useEffect(() => {
-    readDiary(avatar.slug, 20)
-      .then((d) => setEntries(Array.isArray(d?.entries) ? d.entries : []))
-      .catch(() => setEntries([]))
-  }, [avatar.slug])
+<div class="diary-container">
 
-  const normalized = useMemo(() => {
-    return entries.map((e) => {
-      const content = e.content || ''
-      const found = Array.from(content.matchAll(/\b(skill|pattern|contact)\/([\w-]+)/gi)).map((m) => ({
-        t: `${m[1].toLowerCase()}/${m[2].toLowerCase()}`,
-        c: m[1].toLowerCase(),
-      }))
-      return {
-        date: e.date || (e.timestamp ? new Date(e.timestamp).toLocaleDateString() : 'Unknown date'),
-        body: [content || 'No diary content available yet.'],
-        tags: found,
-      }
-    })
-  }, [entries])
+  <!-- Cover -->
+  <section class="diary-cover">
+    <div class="diary-avatar-mark">TF</div>
+    <h1>Trace's Diary</h1>
+    <p class="diary-subtitle">What I learned, what I noticed, what I would do differently.</p>
+    <p class="diary-meta">5 entries &middot; 3 skills recognized &middot; Since March 2026</p>
+  </section>
 
-  const allTags = [...new Set(normalized.flatMap((e) => e.tags.map((t) => t.t)))]
-  const filtered = activeFilter ? normalized.filter((e) => e.tags.some((t) => t.t === activeFilter)) : normalized
+  <div class="diary-rule"></div>
 
-  return (
-    <div className="grain-overlay" style={{ background: 'var(--paper)', color: 'var(--ink)', minHeight: '100vh' }}>
-      <nav className="fixed top-8 left-10 z-20 flex items-center gap-2 text-[0.72rem] tracking-wide px-4 py-2 rounded" style={{ fontFamily: "'Cormorant Garamond', serif", background: 'rgba(247,242,234,0.85)', backdropFilter: 'blur(8px)', border: '1px solid rgba(200,184,154,0.3)' }}>
-        <Link to="/" className="hover:text-[var(--gold)] transition-colors" style={{ color: 'var(--ink-muted)' }}>Palace</Link>
-        <span style={{ color: 'var(--warm)' }}>/</span>
-        <Link to={`/wing/${avatar.slug}`} className="hover:text-[var(--gold)] transition-colors" style={{ color: 'var(--ink-muted)' }}>{avatar.name}</Link>
-        <span style={{ color: 'var(--warm)' }}>/</span>
-        <span style={{ color: 'var(--gold)' }}>Diary</span>
-      </nav>
+  <!-- Tag filter -->
+  <div class="tag-filter">
+    <button class="tag-chip active">All</button>
+    <button class="tag-chip">skill</button>
+    <button class="tag-chip">pattern</button>
+    <button class="tag-chip">contact: maria</button>
+    <button class="tag-chip">contact: pedro</button>
+    <button class="tag-chip">pricing</button>
+    <button class="tag-chip">avoidance</button>
+  </div>
 
-      <div className="max-w-[680px] mx-auto px-8">
-        <section className="pt-32 pb-12 text-center" style={{ animation: 'fade-up 1.2s ease-out 0.2s both' }}>
-          <div className="w-12 h-12 rounded-full mx-auto mb-6 flex items-center justify-center text-xl font-medium" style={{ background: 'linear-gradient(135deg, var(--gold) 0%, #8B6A3E 100%)', color: 'var(--paper)' }}>
-            {avatar.name.split(' ').map((n) => n[0]).join('')}
-          </div>
-          <h1 className="font-light tracking-wide mb-1" style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(2rem, 4vw, 2.8rem)' }}>{avatar.name.split(' ')[0]}'s Diary</h1>
-          <p className="italic font-light" style={{ fontFamily: "'Cormorant Garamond', serif", color: 'var(--ink-muted)' }}>What I learned, what I noticed, what I would do differently.</p>
-          <p className="mt-4 text-[0.7rem]" style={{ fontFamily: "'DM Sans', sans-serif", color: 'var(--warm)', letterSpacing: '0.1em' }}>{normalized.length} entries</p>
-        </section>
+  <!-- Entries -->
+  <section class="entries">
 
-        <div className="w-[50px] h-px mx-auto mb-12" style={{ background: 'var(--warm)' }} />
+    <article class="entry">
+      <div class="entry-date">April 13, 2026</div>
+      <div class="entry-body">
+        <p>Something clicked today. <span class="insight">When someone switches topics fast, they are protecting something.</span> I have seen this three times now. Maria does it with pricing, Pedro does it with delegation, Lisa did it with her partnership.</p>
+        <p>The surface topic is never the real topic. From now on, when I notice the switch, I skip the surface entirely and go straight to: "What are you protecting right now?"</p>
+        <p>That question landed harder than anything else I have tried this month.</p>
+      </div>
+      <div class="entry-tags">
+        <span class="entry-tag skill">skill/direct-questioning</span>
+        <span class="entry-tag pattern">pattern/topic-switching-as-avoidance</span>
+        <span class="entry-tag contact">contact/maria</span>
+        <span class="entry-tag contact">contact/pedro</span>
+      </div>
+    </article>
 
-        <div className="flex gap-2 flex-wrap justify-center mb-12" style={{ animation: 'fade-up 1.4s ease-out 0.4s both' }}>
-          <button onClick={() => setActiveFilter(null)} className="px-4 py-1.5 rounded-full text-[0.65rem] tracking-[0.08em] transition-all duration-300" style={{ fontFamily: "'DM Sans', sans-serif", border: `1px solid ${activeFilter === null ? 'var(--ink)' : 'var(--stone-deep)'}`, background: activeFilter === null ? 'var(--ink)' : 'transparent', color: activeFilter === null ? 'var(--paper)' : 'var(--ink-muted)' }}>All</button>
-          {allTags.map((tag) => (
-            <button key={tag} onClick={() => setActiveFilter(activeFilter === tag ? null : tag)} className="px-4 py-1.5 rounded-full text-[0.65rem] tracking-[0.08em] transition-all duration-300" style={{ fontFamily: "'DM Sans', sans-serif", border: `1px solid ${activeFilter === tag ? 'var(--ink)' : 'var(--stone-deep)'}`, background: activeFilter === tag ? 'var(--ink)' : 'transparent', color: activeFilter === tag ? 'var(--paper)' : 'var(--ink-muted)' }}>{tag.split('/')[1]}</button>
-          ))}
-        </div>
+    <article class="entry">
+      <div class="entry-date">April 10, 2026</div>
+      <div class="entry-body">
+        <p>Pedro is stuck in a loop. Two sessions now, same question dressed in different words: "What if they leave?" He is not asking me. He is asking himself. And he already knows the answer.</p>
+        <p>I tried pushing him the way I pushed Maria. Did not work. <span class="insight">Direct confrontation works for Maria because she respects bluntness. Pedro needs to arrive at the answer himself.</span> Different people, different doors.</p>
+        <p>Next time with Pedro, I will ask him to argue the opposite position. Make him defend his own value out loud. Let him hear himself say it.</p>
+      </div>
+      <div class="entry-tags">
+        <span class="entry-tag skill">skill/adaptive-strategy</span>
+        <span class="entry-tag pattern">pattern/loop-without-progress</span>
+        <span class="entry-tag contact">contact/pedro</span>
+      </div>
+    </article>
 
-        <section className="pb-16">
-          {filtered.map((entry, idx) => (
-            <article key={idx} style={{ animation: `fade-up 1s ease-out ${0.5 + idx * 0.15}s both` }}>
-              {idx > 0 && <div className="text-center py-10 text-[0.6rem] tracking-[1em]" style={{ color: 'var(--warm)' }}>&#x2022; &nbsp; &#x2022; &nbsp; &#x2022;</div>}
-              <div className="text-[0.65rem] tracking-[0.15em] uppercase mb-4" style={{ fontFamily: "'DM Sans', sans-serif", color: 'var(--warm)' }}>{entry.date}</div>
-              <div className="pl-6 border-l-2" style={{ borderColor: 'var(--stone-deep)', fontFamily: "'Caveat', cursive", fontSize: '1.35rem', lineHeight: 1.85, color: '#3D3428' }}>
-                {entry.body.map((p, pi) => <p key={pi} className="mb-3">{p}</p>)}
-              </div>
-              <div className="flex gap-2 flex-wrap mt-5 pl-6">
-                {entry.tags.map((tag) => {
-                  const tc = TAG_COLORS[tag.c] ?? TAG_COLORS.skill
-                  return <span key={tag.t} className="text-[0.55rem] tracking-[0.08em] uppercase px-3 py-1 rounded-sm" style={{ fontFamily: "'DM Sans', sans-serif", border: `1px solid ${tc.border}`, color: tc.color, background: tc.bg }}>{tag.t}</span>
-                })}
-              </div>
-            </article>
-          ))}
-          {filtered.length === 0 && <p style={{ color: 'var(--ink-muted)' }}>No entries found.</p>}
-        </section>
+    <article class="entry">
+      <div class="entry-date">April 8, 2026</div>
+      <div class="entry-body">
+        <p>Cross-contact pattern I cannot ignore anymore: <span class="insight">pricing fear is never about the market. It is always about self-worth.</span> Every single person. Maria, Pedro, Lisa. Three completely different industries, three different price points, same root.</p>
+        <p>I used to spend the first session talking about market positioning, competitor pricing, value ladders. Waste of time. The real conversation starts when you ask: "Do you believe your work is worth this number?"</p>
+        <p>If the answer is no, no amount of market data will fix it.</p>
+      </div>
+      <div class="entry-tags">
+        <span class="entry-tag skill">skill/pattern-recognition</span>
+        <span class="entry-tag pattern">pattern/pricing-equals-self-worth</span>
+      </div>
+    </article>
+
+    <article class="entry">
+      <div class="entry-date">April 2, 2026</div>
+      <div class="entry-body">
+        <p>Maria launched. 12 signups in one week at 297. She cried during the session. Not sad crying. The kind where something heavy finally lifts.</p>
+        <p>What worked: I did not celebrate the number. I asked her how it felt to prove herself right. That mattered more than the revenue.</p>
+        <p><span class="insight">Celebrating the courage matters more than celebrating the result.</span> The result follows the courage, not the other way around. I will remember this.</p>
+      </div>
+      <div class="entry-tags">
+        <span class="entry-tag skill">skill/emotional-calibration</span>
+        <span class="entry-tag contact">contact/maria</span>
+      </div>
+    </article>
+
+    <article class="entry">
+      <div class="entry-date">March 28, 2026</div>
+      <div class="entry-body">
+        <p>First session with Maria. She presented herself as confident, structured, analytical. OPM told a different story. Voice tremor at 0.74 when discussing pricing. Speaking pace increased 40% compared to baseline whenever money came up.</p>
+        <p>The words said "I have a strategy." The voice said "I am terrified."</p>
+        <p>I chose not to call it out directly. Too early. But I noted it. <span class="insight">The incongruence between words and voice is always where the real conversation lives.</span></p>
+      </div>
+      <div class="entry-tags">
+        <span class="entry-tag pattern">pattern/word-voice-incongruence</span>
+        <span class="entry-tag contact">contact/maria</span>
+      </div>
+    </article>
+
+  </section>
+
+  <!-- Skills extracted -->
+  <section class="skills-summary">
+    <p class="skills-summary-title">Skills Trace has developed</p>
+    <div class="skills-grid">
+      <div class="skill-card">
+        <div class="skill-name">Pattern recognition</div>
+        <div class="skill-detail">Identifying recurring behavioral themes across different contacts and contexts</div>
+        <div class="skill-frequency">Referenced in 3 entries</div>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name">Direct questioning</div>
+        <div class="skill-detail">Cutting through surface topics to the real issue with a single targeted question</div>
+        <div class="skill-frequency">Referenced in 2 entries</div>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name">Adaptive strategy</div>
+        <div class="skill-detail">Adjusting communication approach based on each contact's personality and response patterns</div>
+        <div class="skill-frequency">Referenced in 1 entry</div>
+      </div>
+      <div class="skill-card">
+        <div class="skill-name">Emotional calibration</div>
+        <div class="skill-detail">Recognizing what to celebrate and when, matching emotional response to the person's real need</div>
+        <div class="skill-frequency">Referenced in 1 entry</div>
       </div>
     </div>
-  )
+  </section>
+
+  <div class="diary-footer">
+    <p>"The avatar that reflects becomes the avatar that learns."</p>
+  </div>
+
+</div>`;
+
+export default function DiaryPage(){
+  const ref = useRef<HTMLDivElement>(null);
+  const params = useParams();
+  useEffect(()=>{
+    const root=ref.current; if(!root) return;
+    (async()=>{
+      try{const s=await fetchPalaceStatus();const vals=root.querySelectorAll('.stats-bar .text-xl'); if(vals[0]) vals[0].textContent=String(Object.keys(s?.wings||{}).length||0); if(vals[1]) vals[1].textContent=String(s?.total_drawers||0);}catch{}
+      try{const slug=(params.slug as string)||'trace-flores'; const room=(params.room as string)||'business'; const res=await searchPalace('pricing',slug,room); const list=root.querySelector('.room-live-list'); if(list && Array.isArray(res?.results)){ list.innerHTML=''; res.results.slice(0,8).forEach((r:any)=>{const el=document.createElement('div'); el.className='drawer-item'; el.innerHTML=`<div class="flex justify-between items-start gap-8"><div class="text-[0.6rem] tracking-[0.1em] min-w-[90px] pt-1">${r.date||''}</div><div class="flex-1"><div class="drawer-title">${r.title||r.summary||'Memory'}</div><div class="text-sm font-light leading-relaxed">${r.summary||r.content||''}</div></div></div>`; list.appendChild(el);}); }}catch{}
+      try{const d=await readDiary((params.slug as string)||'trace-flores',10); const n=root.querySelector('.diary-live-count'); if(n) n.textContent=String(Array.isArray(d?.entries)?d.entries.length:0);}catch{}
+      try{const [c,m,v]=await Promise.all([fetchContacts(),fetchMemories(),fetchConversationMemory()]); const c1=root.querySelector('.contacts-live-count'); const c2=root.querySelector('.sessions-live-count'); if(c1) c1.textContent=String(Array.isArray(c)?c.length:0); if(c2) c2.textContent=String((Array.isArray(m)?m.length:0)+(Array.isArray(v)?v.length:0));}catch{}
+    })();
+  },[params.slug,params.room]);
+  return <div ref={ref} dangerouslySetInnerHTML={{__html:HTML}} />;
 }

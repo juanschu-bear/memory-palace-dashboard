@@ -1,138 +1,216 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { AVATARS, ROOM_DESCRIPTIONS, HALLS, searchPalace, type RoomName } from '@/lib/api'
+import { useEffect, useRef } from "react";
+import { useParams } from "react-router-dom";
+import { fetchPalaceStatus, searchPalace, readDiary, fetchContacts, fetchMemories, fetchConversationMemory } from "@/lib/api";
 
-interface Drawer {
-  id: string
-  date: string
-  title: string
-  summary: string
-  hall: string
-  contact: string
-  detail: string
-  tags: string[]
-}
+const HTML = `<!-- Global Navigation -->
+<nav style="position:fixed;top:0;left:0;width:100%;z-index:50;display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:1rem 2rem;background:rgba(10,10,12,0.75);backdrop-filter:blur(12px);border-bottom:1px solid rgba(232,160,80,0.06)">
+  <a href="/" style="font-family:'Cormorant Garamond',serif;font-size:0.85rem;letter-spacing:0.12em;color:rgba(232,160,80,0.6);text-decoration:none;margin-right:1.5rem;padding-right:1.5rem;border-right:1px solid rgba(232,160,80,0.1)">Memory Palace</a>
+  <a href="/" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Entrance</a>
+  <a href="02-wing.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Wings</a>
+  <a href="03-room.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Rooms</a>
+  <a href="04-diary.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Diary</a>
+  <a href="/tunnels" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Tunnels</a>
+  <a href="/contacts" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Contacts</a>
+  <a href="/skills" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Skills</a>
+</nav>
 
-const HALL_COLORS: Record<string, string> = {
-  decision: 'rgba(100,180,255,0.5)',
-  discovery: 'rgba(160,220,120,0.5)',
-  event: 'rgba(232,160,80,0.5)',
-  problem: 'rgba(255,120,120,0.5)',
-  preference: 'rgba(200,160,255,0.5)',
-  pattern: 'rgba(160,220,120,0.5)',
-  shift: 'rgba(100,180,255,0.5)',
-  contradiction: 'rgba(255,120,120,0.5)',
-}
 
-function mapResultToDrawer(r: any, idx: number): Drawer {
-  return {
-    id: String(r?.id ?? r?.memory_id ?? idx),
-    date: r?.date || (r?.timestamp ? new Date(r.timestamp).toLocaleDateString() : 'Unknown'),
-    title: r?.title || r?.summary || 'Memory',
-    summary: r?.summary || r?.content || 'No summary',
-    hall: r?.hall || 'pattern',
-    contact: r?.contact_name || r?.contact || 'Unknown',
-    detail: r?.content || r?.summary || 'No detail',
-    tags: Array.isArray(r?.tags) ? r.tags : [],
-  }
-}
+<!-- Room atmosphere -->
+<div class="room-bg"></div>
+<div class="room-light"></div>
+<div class="wall-texture-left"></div>
+<div class="wall-texture-right"></div>
+<div id="dust-container"></div>
 
-export default function RoomPage() {
-  const { avatarSlug, roomSlug } = useParams<{ avatarSlug: string; roomSlug: string }>()
-  const avatar = AVATARS.find((a) => a.slug === avatarSlug) ?? AVATARS[0]
-  const roomName = (roomSlug ?? 'business') as RoomName
-  const [activeHall, setActiveHall] = useState<string | null>(null)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('pricing')
-  const [drawers, setDrawers] = useState<Drawer[]>([])
+<!-- Content -->
+<div class="content">
 
-  useEffect(() => {
-    const q = searchQuery || roomName
-    searchPalace(q, avatar.slug, roomName)
-      .then((res: any) => {
-        const rows = Array.isArray(res?.results) ? res.results : []
-        setDrawers(rows.map(mapResultToDrawer))
-      })
-      .catch(() => setDrawers([]))
-  }, [avatar.slug, roomName, searchQuery])
+  <!-- Breadcrumb -->
+  <nav class="breadcrumb">
+    <a onclick="history.go(-2)">Palace</a>
+    <span class="sep">/</span>
+    <a onclick="history.back()">Trace Flores</a>
+    <span class="sep">/</span>
+    <span class="current">Business</span>
+  </nav>
 
-  const filteredDrawers = useMemo(() => {
-    return drawers.filter((d) => {
-      if (activeHall && d.hall !== activeHall) return false
-      if (searchQuery && !d.title.toLowerCase().includes(searchQuery.toLowerCase()) && !d.summary.toLowerCase().includes(searchQuery.toLowerCase())) return false
-      return true
-    })
-  }, [drawers, activeHall, searchQuery])
+  <!-- Room header -->
+  <section class="room-header">
+    <div class="room-context">Trace Flores &middot; Room</div>
+    <h1>Business</h1>
+    <p class="room-desc">Strategy, launches, pricing, revenue, scaling, market positioning, client acquisition, competitive landscape.</p>
+    <div class="room-meta">
+      <div class="room-meta-item"><strong>23</strong> memories</div>
+      <div class="room-meta-item"><strong>4</strong> contacts</div>
+      <div class="room-meta-item"><strong>2</strong> tunnels</div>
+    </div>
+  </section>
 
-  return (
-    <div className="grain-overlay" style={{ background: 'var(--night-surface)', color: 'var(--night-text)', minHeight: '100vh' }}>
-      <div className="fixed inset-0 pointer-events-none z-0" style={{ background: 'radial-gradient(ellipse at 50% 20%, rgba(30,25,45,0.8) 0%, var(--night-surface) 70%)' }} />
-      <div className="fixed top-[-5%] left-1/2 -translate-x-1/2 w-1/2 h-[40%] pointer-events-none z-[1]" style={{ background: 'radial-gradient(ellipse, rgba(232,160,80,0.06) 0%, transparent 70%)', animation: 'light-breathe 8s ease-in-out infinite alternate' }} />
+  <div class="room-divider"></div>
 
-      <div className="relative z-[5] max-w-[820px] mx-auto px-8">
-        <nav className="fixed top-8 left-10 z-20 flex items-center gap-2 text-[0.72rem] tracking-wide px-4 py-2.5 rounded" style={{ background: 'rgba(10,9,14,0.7)', backdropFilter: 'blur(8px)', border: '1px solid rgba(232,160,80,0.06)', fontFamily: "'Cormorant Garamond', serif" }}>
-          <Link to="/" className="transition-colors hover:text-[var(--gold-accent)]" style={{ color: 'rgba(232,224,208,0.35)' }}>Palace</Link>
-          <span style={{ color: 'rgba(232,224,208,0.15)' }}>/</span>
-          <Link to={`/wing/${avatar.slug}`} className="transition-colors hover:text-[var(--gold-accent)]" style={{ color: 'rgba(232,224,208,0.35)' }}>{avatar.name}</Link>
-          <span style={{ color: 'rgba(232,224,208,0.15)' }}>/</span>
-          <span style={{ color: 'rgba(232,160,80,0.6)' }}>{roomName.charAt(0).toUpperCase() + roomName.slice(1)}</span>
-        </nav>
+  <!-- Search -->
+  <div class="search-bar">
+    <input type="text" class="search-input" placeholder="Search within this room...">
+  </div>
 
-        <section className="pt-28 pb-12 text-center" style={{ animation: 'fade-up 1.2s ease-out 0.2s both' }}>
-          <div className="inline-block px-5 py-1 mb-5 text-[0.6rem] tracking-[0.4em] uppercase rounded-sm" style={{ border: '1px solid rgba(232,160,80,0.12)', color: 'rgba(232,160,80,0.4)', background: 'rgba(232,160,80,0.02)' }}>
-            {avatar.name} &middot; Room
+  <!-- Drawers (memories) -->
+  <section class="drawers-section">
+
+    <div class="drawer" onclick="this.querySelector('.drawer-detail').classList.toggle('open')">
+      <div class="drawer-top">
+        <div class="drawer-date">Apr 12, 2026</div>
+        <div class="drawer-content">
+          <div class="drawer-title">Maria raised her course price from 197 to 297 euros</div>
+          <div class="drawer-summary">After three sessions of circling the topic, Maria finally committed to the higher price. The trigger was reframing it from "charging more" to "valuing her expertise".</div>
+          <div class="drawer-tags">
+            <span class="drawer-tag hall-decision">Decision</span>
+            <span class="drawer-tag">pricing</span>
+            <span class="drawer-tag">self-worth</span>
           </div>
-          <h1 className="font-light tracking-wide mb-2" style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(2.2rem, 4vw, 3.2rem)' }}>{roomName.charAt(0).toUpperCase() + roomName.slice(1)}</h1>
-          <p className="font-light italic text-base max-w-[500px] mx-auto leading-relaxed" style={{ fontFamily: "'Cormorant Garamond', serif", color: 'rgba(232,224,208,0.4)' }}>{ROOM_DESCRIPTIONS[roomName]}</p>
-          <div className="flex justify-center gap-8 mt-6">
-            {[{ n: String(drawers.length), l: 'memories' }, { n: String(new Set(drawers.map((d) => d.contact)).size), l: 'contacts' }, { n: '2', l: 'tunnels' }].map((m) => (
-              <div key={m.l} className="text-[0.65rem] tracking-[0.15em] uppercase" style={{ color: 'rgba(232,224,208,0.25)', fontFamily: "'DM Sans', sans-serif" }}><strong className="text-sm" style={{ color: 'var(--gold-accent)', fontWeight: 400 }}>{m.n}</strong> {m.l}</div>
-            ))}
-          </div>
-        </section>
-
-        <div className="w-[40px] h-px mx-auto mb-12" style={{ background: 'rgba(232,160,80,0.15)' }} />
-
-        <div className="mb-8" style={{ animation: 'fade-up 1.3s ease-out 0.4s both' }}>
-          <input type="text" placeholder="Search within this room..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full px-6 py-4 rounded-sm outline-none transition-colors" style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: '1rem', fontWeight: 300, letterSpacing: '0.03em', background: 'rgba(232,160,80,0.02)', border: '1px solid rgba(232,160,80,0.08)', color: 'var(--night-text)' }} onFocus={(e) => (e.target.style.borderColor = 'rgba(232,160,80,0.25)')} onBlur={(e) => (e.target.style.borderColor = 'rgba(232,160,80,0.08)')} />
         </div>
-
-        <div className="flex gap-2 flex-wrap mb-10" style={{ animation: 'fade-up 1.35s ease-out 0.45s both' }}>
-          <button onClick={() => setActiveHall(null)} className="px-4 py-1.5 rounded-sm text-[0.65rem] tracking-[0.1em] uppercase transition-all duration-300" style={{ fontFamily: "'DM Sans', sans-serif", border: `1px solid ${activeHall === null ? 'rgba(232,160,80,0.4)' : 'rgba(232,160,80,0.1)'}`, background: activeHall === null ? 'rgba(232,160,80,0.1)' : 'transparent', color: activeHall === null ? 'var(--gold-accent)' : 'rgba(232,224,208,0.35)' }}>All</button>
-          {HALLS.slice(0, 5).map((hall) => (
-            <button key={hall} onClick={() => setActiveHall(activeHall === hall ? null : hall)} className="px-4 py-1.5 rounded-sm text-[0.65rem] tracking-[0.1em] uppercase transition-all duration-300" style={{ fontFamily: "'DM Sans', sans-serif", border: `1px solid ${activeHall === hall ? HALL_COLORS[hall] : 'rgba(232,160,80,0.08)'}`, background: activeHall === hall ? `${HALL_COLORS[hall]}15` : 'transparent', color: activeHall === hall ? HALL_COLORS[hall] : 'rgba(232,224,208,0.3)' }}>{hall}</button>
-          ))}
+        <div class="drawer-right">
+          <span class="drawer-contact">Maria</span>
+          <span class="drawer-expand">&darr;</span>
         </div>
-
-        <section className="pb-16" style={{ animation: 'fade-up 1.4s ease-out 0.5s both' }}>
-          {filteredDrawers.map((drawer) => (
-            <div key={drawer.id} className="drawer-item" onClick={() => setExpandedId(expandedId === drawer.id ? null : drawer.id)}>
-              <div className="flex justify-between items-start gap-8" style={{ transition: 'padding-left 0.3s ease' }}>
-                <div className="text-[0.6rem] tracking-[0.1em] min-w-[90px] pt-1" style={{ fontFamily: "'DM Sans', sans-serif", color: 'rgba(232,224,208,0.2)' }}>{drawer.date}</div>
-                <div className="flex-1">
-                  <div className="drawer-title" style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: '1.15rem', fontWeight: 400, lineHeight: 1.4, color: 'rgba(232,224,208,0.75)', transition: 'color 0.3s ease', marginBottom: '0.3rem' }}>{drawer.title}</div>
-                  <div className="text-sm font-light leading-relaxed" style={{ fontFamily: "'DM Sans', sans-serif", color: 'rgba(232,224,208,0.35)' }}>{drawer.summary}</div>
-                  <div className="flex gap-2 mt-3 flex-wrap">
-                    <span className="text-[0.58rem] tracking-[0.1em] uppercase px-3 py-1 rounded-sm" style={{ fontFamily: "'DM Sans', sans-serif", border: `1px solid ${HALL_COLORS[drawer.hall] || 'rgba(232,160,80,0.2)'}30`, color: HALL_COLORS[drawer.hall] || 'rgba(232,160,80,0.7)', background: `${HALL_COLORS[drawer.hall] || 'rgba(232,160,80,0.7)'}08` }}>{drawer.hall}</span>
-                    {drawer.tags.map((tag) => <span key={tag} className="text-[0.58rem] tracking-[0.1em] uppercase px-3 py-1 rounded-sm" style={{ fontFamily: "'DM Sans', sans-serif", border: '1px solid rgba(232,160,80,0.1)', color: 'rgba(232,160,80,0.4)', background: 'rgba(232,160,80,0.02)' }}>{tag}</span>)}
-                  </div>
-                  {expandedId === drawer.id && <div className="mt-4 p-5 rounded-sm" style={{ background: 'rgba(232,160,80,0.02)', border: '1px solid rgba(232,160,80,0.06)' }}><p className="text-sm font-light leading-loose" style={{ fontFamily: "'DM Sans', sans-serif", color: 'rgba(232,224,208,0.5)' }}>{drawer.detail}</p></div>}
-                </div>
-                <div className="flex items-center gap-4 shrink-0"><span className="text-[0.65rem] whitespace-nowrap" style={{ fontFamily: "'DM Sans', sans-serif", color: 'rgba(232,224,208,0.2)' }}>{drawer.contact}</span><span className="drawer-expand" style={{ fontSize: '1rem', color: 'rgba(232,160,80,0.4)', opacity: 0, transition: 'opacity 0.3s ease' }}>{expandedId === drawer.id ? '\u2191' : '\u2193'}</span></div>
-              </div>
-            </div>
-          ))}
-          {filteredDrawers.length > 0 && <div className="border-b" style={{ borderColor: 'rgba(232,160,80,0.06)' }} />}
-          {filteredDrawers.length === 0 && <p style={{ color: 'rgba(232,224,208,0.35)' }}>No memories found for this room yet.</p>}
-        </section>
-
-        <section className="pb-16">
-          <p className="text-[0.65rem] tracking-[0.4em] uppercase mb-5" style={{ color: 'rgba(232,224,208,0.2)' }}>Tunnels from this room</p>
-          {[{ wing: 'Adri Kastel', room: 'Business', desc: 'Shared pricing patterns across contacts' }, { wing: 'Juan Schubert', room: 'Business', desc: 'ONIOKO strategy discussions' }].map((t, i) => (
-            <div key={i} className="flex items-center gap-4 py-3 border-b transition-all duration-300 group cursor-pointer hover:pl-2" style={{ borderColor: 'rgba(232,160,80,0.04)' }}><span className="text-sm" style={{ color: 'rgba(232,160,80,0.3)' }}>&#x2194;</span><span className="text-sm group-hover:text-[var(--gold-accent)] transition-colors" style={{ fontFamily: "'Cormorant Garamond', serif", color: 'rgba(232,224,208,0.4)' }}>{t.wing} &rarr; {t.room}</span><span className="ml-auto text-[0.7rem]" style={{ fontFamily: "'DM Sans', sans-serif", color: 'rgba(232,224,208,0.2)' }}>{t.desc}</span></div>
-          ))}
-        </section>
+      </div>
+      <div class="drawer-detail">
+        <p class="detail-text">Full transcript excerpt: <em>"I set it to 297. It felt uncomfortable but... right? Like, I actually believe it now. You made me realize it was never about the number."</em> OPM noted a drop in vocal tremor compared to the first session where pricing was discussed, and a significant increase in speech stability.</p>
       </div>
     </div>
-  )
+
+    <div class="drawer" onclick="this.querySelector('.drawer-detail').classList.toggle('open')">
+      <div class="drawer-top">
+        <div class="drawer-date">Apr 10, 2026</div>
+        <div class="drawer-content">
+          <div class="drawer-title">Pedro cannot decide whether to keep his current pricing</div>
+          <div class="drawer-summary">Pedro has been going back and forth for two sessions. The core blocker is fear of losing existing clients if he raises prices.</div>
+          <div class="drawer-tags">
+            <span class="drawer-tag hall-problem">Problem</span>
+            <span class="drawer-tag">pricing</span>
+            <span class="drawer-tag">fear</span>
+          </div>
+        </div>
+        <div class="drawer-right">
+          <span class="drawer-contact">Pedro</span>
+          <span class="drawer-expand">&darr;</span>
+        </div>
+      </div>
+      <div class="drawer-detail">
+        <p class="detail-text">Pedro asked <em>"What if my best clients leave?"</em> three times across two sessions. Each time the framing was slightly different, but the root fear is identical. This is a pattern: the question is not about pricing, it is about whether Pedro believes his clients stay for his value rather than his price.</p>
+      </div>
+    </div>
+
+    <div class="drawer" onclick="this.querySelector('.drawer-detail').classList.toggle('open')">
+      <div class="drawer-top">
+        <div class="drawer-date">Apr 8, 2026</div>
+        <div class="drawer-content">
+          <div class="drawer-title">Pricing fear is always about self-worth</div>
+          <div class="drawer-summary">Cross-contact pattern recognized: every person who struggled with pricing ultimately had a self-worth question underneath, not a market question.</div>
+          <div class="drawer-tags">
+            <span class="drawer-tag hall-discovery">Discovery</span>
+            <span class="drawer-tag">pattern</span>
+            <span class="drawer-tag">cross-contact</span>
+          </div>
+        </div>
+        <div class="drawer-right">
+          <span class="drawer-contact">Multiple</span>
+          <span class="drawer-expand">&darr;</span>
+        </div>
+      </div>
+      <div class="drawer-detail">
+        <p class="detail-text">Observed across Maria, Pedro, and Lisa. All three framed pricing as a market question (<em>"What should I charge?"</em>). All three, when pressed, revealed the real question was <em>"Am I worth it?"</em> This pattern holds regardless of industry, experience level, or actual market conditions. Recommendation: always go to the self-worth question first.</p>
+      </div>
+    </div>
+
+    <div class="drawer" onclick="this.querySelector('.drawer-detail').classList.toggle('open')">
+      <div class="drawer-top">
+        <div class="drawer-date">Apr 5, 2026</div>
+        <div class="drawer-content">
+          <div class="drawer-title">Maria prefers direct confrontation over gentle probing</div>
+          <div class="drawer-summary">When asked gently, Maria deflects. When confronted directly, she engages honestly. This is a communication preference specific to her.</div>
+          <div class="drawer-tags">
+            <span class="drawer-tag hall-preference">Preference</span>
+            <span class="drawer-tag">communication</span>
+          </div>
+        </div>
+        <div class="drawer-right">
+          <span class="drawer-contact">Maria</span>
+          <span class="drawer-expand">&darr;</span>
+        </div>
+      </div>
+      <div class="drawer-detail">
+        <p class="detail-text">Session 3 vs Session 1 comparison. In Session 1, gentle probing (<em>"How do you feel about your pricing?"</em>) led to 4 minutes of deflection. In Session 3, direct confrontation (<em>"You do not believe your work is worth 297, do you?"</em>) led to immediate, honest engagement. OPM confirmed: authenticity markers spiked after direct confrontation.</p>
+      </div>
+    </div>
+
+    <div class="drawer" onclick="this.querySelector('.drawer-detail').classList.toggle('open')">
+      <div class="drawer-top">
+        <div class="drawer-date">Apr 2, 2026</div>
+        <div class="drawer-content">
+          <div class="drawer-title">Maria launched her online course successfully</div>
+          <div class="drawer-summary">12 signups in the first week at the new 297 price point. Revenue exceeded her monthly target within 7 days.</div>
+          <div class="drawer-tags">
+            <span class="drawer-tag hall-event">Event</span>
+            <span class="drawer-tag">launch</span>
+            <span class="drawer-tag">revenue</span>
+          </div>
+        </div>
+        <div class="drawer-right">
+          <span class="drawer-contact">Maria</span>
+          <span class="drawer-expand">&darr;</span>
+        </div>
+      </div>
+      <div class="drawer-detail">
+        <p class="detail-text">Maria was emotional during this session. OPM detected elevated positive valence throughout, with brief voice breaks consistent with relief or joy. She said: <em>"I almost set it back to 197 the night before launch. I am glad I did not."</em></p>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- Tunnels -->
+  <section class="tunnels-section">
+    <p class="tunnels-label">Tunnels from this room</p>
+    
+    <div class="tunnel-link">
+      <span class="tunnel-icon">&#x2194;</span>
+      <span class="tunnel-name">Adri Kastel &rarr; Business</span>
+      <span class="tunnel-desc">Shared pricing patterns across 3 contacts</span>
+    </div>
+
+    <div class="tunnel-link">
+      <span class="tunnel-icon">&#x2194;</span>
+      <span class="tunnel-name">Juan Schubert &rarr; Business</span>
+      <span class="tunnel-desc">ONIOKO strategy discussions</span>
+    </div>
+  </section>
+
+</div>
+
+<script>
+// Dust particles
+const dustContainer = document.getElementById('dust-container');
+for (let i = 0; i < 15; i++) {
+  const dust = document.createElement('div');
+  dust.className = 'dust';
+  dust.style.left = (25 + Math.random() * 50) + '%';
+  dust.style.top = (10 + Math.random() * 60) + '%';
+  dust.style.animationDuration = (6 + Math.random() * 10) + 's';
+  dust.style.animationDelay = (Math.random() * 12) + 's';
+  dustContainer.appendChild(dust);
+}
+</script>`;
+
+export default function RoomPage(){
+  const ref = useRef<HTMLDivElement>(null);
+  const params = useParams();
+  useEffect(()=>{
+    const root=ref.current; if(!root) return;
+    (async()=>{
+      try{const s=await fetchPalaceStatus();const vals=root.querySelectorAll('.stats-bar .text-xl'); if(vals[0]) vals[0].textContent=String(Object.keys(s?.wings||{}).length||0); if(vals[1]) vals[1].textContent=String(s?.total_drawers||0);}catch{}
+      try{const slug=(params.slug as string)||'trace-flores'; const room=(params.room as string)||'business'; const res=await searchPalace('pricing',slug,room); const list=root.querySelector('.room-live-list'); if(list && Array.isArray(res?.results)){ list.innerHTML=''; res.results.slice(0,8).forEach((r:any)=>{const el=document.createElement('div'); el.className='drawer-item'; el.innerHTML=`<div class="flex justify-between items-start gap-8"><div class="text-[0.6rem] tracking-[0.1em] min-w-[90px] pt-1">${r.date||''}</div><div class="flex-1"><div class="drawer-title">${r.title||r.summary||'Memory'}</div><div class="text-sm font-light leading-relaxed">${r.summary||r.content||''}</div></div></div>`; list.appendChild(el);}); }}catch{}
+      try{const d=await readDiary((params.slug as string)||'trace-flores',10); const n=root.querySelector('.diary-live-count'); if(n) n.textContent=String(Array.isArray(d?.entries)?d.entries.length:0);}catch{}
+      try{const [c,m,v]=await Promise.all([fetchContacts(),fetchMemories(),fetchConversationMemory()]); const c1=root.querySelector('.contacts-live-count'); const c2=root.querySelector('.sessions-live-count'); if(c1) c1.textContent=String(Array.isArray(c)?c.length:0); if(c2) c2.textContent=String((Array.isArray(m)?m.length:0)+(Array.isArray(v)?v.length:0));}catch{}
+    })();
+  },[params.slug,params.room]);
+  return <div ref={ref} dangerouslySetInnerHTML={{__html:HTML}} />;
 }

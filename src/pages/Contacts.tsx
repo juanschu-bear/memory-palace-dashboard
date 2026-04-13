@@ -1,70 +1,125 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { fetchContacts, fetchMemories, fetchConversationMemory } from '@/lib/api'
+import { useEffect, useRef } from "react";
+import { useParams } from "react-router-dom";
+import { fetchPalaceStatus, searchPalace, readDiary, fetchContacts, fetchMemories, fetchConversationMemory } from "@/lib/api";
 
-type Contact = { id?: string; name?: string; owner_id?: string; updated_at?: string }
+const HTML = `<!-- Global Navigation -->
+<nav style="position:fixed;top:0;left:0;width:100%;z-index:50;display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:1rem 2rem;background:rgba(10,10,12,0.75);backdrop-filter:blur(12px);border-bottom:1px solid rgba(232,160,80,0.06)">
+  <a href="/" style="font-family:'Cormorant Garamond',serif;font-size:0.85rem;letter-spacing:0.12em;color:rgba(232,160,80,0.6);text-decoration:none;margin-right:1.5rem;padding-right:1.5rem;border-right:1px solid rgba(232,160,80,0.1)">Memory Palace</a>
+  <a href="/" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Entrance</a>
+  <a href="02-wing.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Wings</a>
+  <a href="03-room.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Rooms</a>
+  <a href="04-diary.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Diary</a>
+  <a href="/tunnels" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Tunnels</a>
+  <a href="/contacts" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Contacts</a>
+  <a href="/skills" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Skills</a>
+</nav>
 
-export default function ContactsPage() {
-  const [search, setSearch] = useState('')
-  const [contacts, setContacts] = useState<Contact[]>([])
-  const [sessionsByContact, setSessionsByContact] = useState<Record<string, number>>({})
 
-  useEffect(() => {
-    fetchContacts().then((rows) => setContacts(Array.isArray(rows) ? rows : [])).catch(() => setContacts([]))
-    Promise.all([fetchMemories(), fetchConversationMemory()]).then(([m1, m2]) => {
-      const counts: Record<string, number> = {}
-      ;[...(Array.isArray(m1) ? m1 : []), ...(Array.isArray(m2) ? m2 : [])].forEach((m: any) => {
-        const id = m.contact_id || m.user_id || m.owner_id || 'unknown'
-        counts[id] = (counts[id] || 0) + 1
-      })
-      setSessionsByContact(counts)
-    }).catch(() => setSessionsByContact({}))
-  }, [])
+<nav class="breadcrumb">
+  <a>Palace</a>
+  <span class="sep">/</span>
+  <span class="current">Contacts</span>
+</nav>
 
-  const filtered = useMemo(() => contacts.filter((c) => (c.name || '').toLowerCase().includes(search.toLowerCase())), [contacts, search])
-  const totalSessions = Object.values(sessionsByContact).reduce((a, b) => a + b, 0)
+<div class="page-container">
 
-  return (
-    <div className="grain-overlay" style={{ background: 'var(--paper-bright)', color: 'var(--ink)', minHeight: '100vh' }}>
-      <nav className="fixed top-8 left-10 z-20 flex items-center gap-2 text-[0.72rem] tracking-wide px-4 py-2 rounded" style={{ fontFamily: "'Cormorant Garamond', serif", background: 'rgba(253,251,247,0.85)', backdropFilter: 'blur(8px)', border: '1px solid rgba(200,184,154,0.25)' }}>
-        <Link to="/" className="hover:text-[var(--gold)] transition-colors" style={{ color: 'var(--ink-muted)' }}>Palace</Link>
-        <span style={{ color: 'var(--stone-deep)' }}>/</span><span style={{ color: 'var(--gold)' }}>Contacts</span>
-      </nav>
+  <section class="page-header">
+    <h1>Contacts</h1>
+    <p class="subtitle">Everyone who has stepped inside the palace.</p>
+    <p class="meta"><span class="contacts-live-count">0</span> contacts &middot; <span class="sessions-live-count">0</span> total sessions &middot; 49 memories stored</p>
+  </section>
 
-      <div className="max-w-[800px] mx-auto px-8">
-        <section className="text-center pt-32 pb-8" style={{ animation: 'fade-up 1.2s ease-out 0.2s both' }}>
-          <h1 className="font-light tracking-wide mb-2" style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 'clamp(2.2rem, 4vw, 3rem)' }}>Contacts</h1>
-          <p className="font-light italic" style={{ fontFamily: "'Cormorant Garamond', serif", color: 'var(--ink-muted)' }}>Everyone who has stepped inside the palace.</p>
-          <p className="mt-4 text-[0.7rem]" style={{ fontFamily: "'DM Sans', sans-serif", color: 'var(--warm)', letterSpacing: '0.08em' }}>{contacts.length} contacts &middot; {totalSessions} total sessions</p>
-        </section>
+  <div class="divider"></div>
 
-        <div className="w-[50px] h-px mx-auto mb-12" style={{ background: 'var(--stone-deep)' }} />
-        <div className="mb-10" style={{ animation: 'fade-up 1.3s ease-out 0.35s both' }}>
-          <input type="text" placeholder="Search contacts..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-full px-5 py-4 rounded-sm outline-none transition-colors" style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: '1rem', fontWeight: 300, background: 'var(--stone)', border: '1px solid var(--stone-deep)', color: 'var(--ink)' }} />
+  <div class="search-bar">
+    <input type="text" class="search-input" placeholder="Search contacts...">
+  </div>
+
+  <section class="contacts-list">
+
+    <div class="contact-card">
+      <div class="contact-initial">M</div>
+      <div class="contact-info">
+        <div class="contact-name">Maria</div>
+        <div class="contact-detail">Online course creator transitioning from in-person coaching. Core themes: pricing, self-worth, product launch.</div>
+        <div class="contact-avatars">
+          <span class="avatar-chip">Trace Flores</span>
         </div>
-
-        <section className="pb-20">
-          {filtered.map((contact, i) => {
-            const id = contact.id || contact.owner_id || 'unknown'
-            const name = contact.name || id
-            return (
-              <div key={id + i} className="grid grid-cols-[auto_1fr_auto] gap-6 items-start py-8 border-t cursor-pointer transition-all duration-300 group hover:pl-3 hover:bg-[rgba(184,149,106,0.02)]" style={{ borderColor: 'var(--stone-deep)', animation: `fade-up 1s ease-out ${0.4 + i * 0.1}s both` }}>
-                <div className="w-11 h-11 rounded-full flex items-center justify-center text-base font-medium shrink-0 mt-0.5" style={{ background: 'var(--stone)', border: '1px solid var(--stone-deep)', color: 'var(--ink-muted)' }}>{name[0]?.toUpperCase() || '?'}</div>
-                <div>
-                  <div className="text-xl font-normal group-hover:text-[var(--gold)] transition-colors" style={{ fontFamily: "'Cormorant Garamond', serif" }}>{name}</div>
-                  <div className="text-sm font-light leading-relaxed mt-1" style={{ fontFamily: "'DM Sans', sans-serif", color: 'var(--ink-muted)' }}>{id}</div>
-                </div>
-                <div className="text-right shrink-0">
-                  <div className="text-xl" style={{ fontFamily: "'Cormorant Garamond', serif", color: 'var(--gold)' }}>{sessionsByContact[id] || 0}</div>
-                  <div className="text-[0.6rem] tracking-[0.12em] uppercase mt-0.5" style={{ fontFamily: "'DM Sans', sans-serif", color: 'var(--warm)' }}>Sessions</div>
-                  <div className="text-[0.65rem] mt-3" style={{ fontFamily: "'DM Sans', sans-serif", color: 'var(--warm)' }}>Last seen: {contact.updated_at ? new Date(contact.updated_at).toLocaleDateString() : '—'}</div>
-                </div>
-              </div>
-            )
-          })}
-          {filtered.length > 0 && <div className="border-b" style={{ borderColor: 'var(--stone-deep)' }} />}
-        </section>
+      </div>
+      <div class="contact-stats">
+        <div class="contact-stat-num">8</div>
+        <div class="contact-stat-label">Sessions</div>
+        <div class="contact-last-seen">Last seen: Apr 12</div>
       </div>
     </div>
-  )
+
+    <div class="contact-card">
+      <div class="contact-initial">P</div>
+      <div class="contact-info">
+        <div class="contact-name">Pedro</div>
+        <div class="contact-detail">Freelance consultant stuck on pricing. Recurring theme: fear of losing existing clients.</div>
+        <div class="contact-avatars">
+          <span class="avatar-chip">Trace Flores</span>
+        </div>
+      </div>
+      <div class="contact-stats">
+        <div class="contact-stat-num">3</div>
+        <div class="contact-stat-label">Sessions</div>
+        <div class="contact-last-seen">Last seen: Apr 10</div>
+      </div>
+    </div>
+
+    <div class="contact-card">
+      <div class="contact-initial">L</div>
+      <div class="contact-info">
+        <div class="contact-name">Lisa</div>
+        <div class="contact-detail">Early-stage founder navigating a business partnership. Core theme: imposter syndrome, delegation.</div>
+        <div class="contact-avatars">
+          <span class="avatar-chip">Trace Flores</span>
+          <span class="avatar-chip">Clara Fontaine</span>
+        </div>
+      </div>
+      <div class="contact-stats">
+        <div class="contact-stat-num">1</div>
+        <div class="contact-stat-label">Sessions</div>
+        <div class="contact-last-seen">Last seen: Apr 5</div>
+      </div>
+    </div>
+
+    <div class="contact-card">
+      <div class="contact-initial">J</div>
+      <div class="contact-info">
+        <div class="contact-name">Juan Schubert</div>
+        <div class="contact-detail">Founder of ONIOKO. Test sessions across multiple avatars. Strategy and product discussions.</div>
+        <div class="contact-avatars">
+          <span class="avatar-chip">Trace Flores</span>
+          <span class="avatar-chip">Adri Kastel</span>
+          <span class="avatar-chip">Prof. Brian Cox</span>
+          <span class="avatar-chip">Clara Fontaine</span>
+        </div>
+      </div>
+      <div class="contact-stats">
+        <div class="contact-stat-num">0</div>
+        <div class="contact-stat-label">Sessions</div>
+        <div class="contact-last-seen">Last seen: Apr 13</div>
+      </div>
+    </div>
+
+  </section>
+
+</div>`;
+
+export default function ContactsPage(){
+  const ref = useRef<HTMLDivElement>(null);
+  const params = useParams();
+  useEffect(()=>{
+    const root=ref.current; if(!root) return;
+    (async()=>{
+      try{const s=await fetchPalaceStatus();const vals=root.querySelectorAll('.stats-bar .text-xl'); if(vals[0]) vals[0].textContent=String(Object.keys(s?.wings||{}).length||0); if(vals[1]) vals[1].textContent=String(s?.total_drawers||0);}catch{}
+      try{const slug=(params.slug as string)||'trace-flores'; const room=(params.room as string)||'business'; const res=await searchPalace('pricing',slug,room); const list=root.querySelector('.room-live-list'); if(list && Array.isArray(res?.results)){ list.innerHTML=''; res.results.slice(0,8).forEach((r:any)=>{const el=document.createElement('div'); el.className='drawer-item'; el.innerHTML=`<div class="flex justify-between items-start gap-8"><div class="text-[0.6rem] tracking-[0.1em] min-w-[90px] pt-1">${r.date||''}</div><div class="flex-1"><div class="drawer-title">${r.title||r.summary||'Memory'}</div><div class="text-sm font-light leading-relaxed">${r.summary||r.content||''}</div></div></div>`; list.appendChild(el);}); }}catch{}
+      try{const d=await readDiary((params.slug as string)||'trace-flores',10); const n=root.querySelector('.diary-live-count'); if(n) n.textContent=String(Array.isArray(d?.entries)?d.entries.length:0);}catch{}
+      try{const [c,m,v]=await Promise.all([fetchContacts(),fetchMemories(),fetchConversationMemory()]); const c1=root.querySelector('.contacts-live-count'); const c2=root.querySelector('.sessions-live-count'); if(c1) c1.textContent=String(Array.isArray(c)?c.length:0); if(c2) c2.textContent=String((Array.isArray(m)?m.length:0)+(Array.isArray(v)?v.length:0));}catch{}
+    })();
+  },[params.slug,params.room]);
+  return <div ref={ref} dangerouslySetInnerHTML={{__html:HTML}} />;
 }

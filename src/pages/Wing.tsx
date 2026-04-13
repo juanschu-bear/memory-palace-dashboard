@@ -1,202 +1,215 @@
-import { useEffect, useRef } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { AVATARS, ROOMS, ROOM_DESCRIPTIONS } from '@/lib/api'
+import { useEffect, useRef } from "react";
+import { useParams } from "react-router-dom";
+import { fetchPalaceStatus, searchPalace, readDiary, fetchContacts, fetchMemories, fetchConversationMemory } from "@/lib/api";
 
-function DustParticles() {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!ref.current) return
-    for (let i = 0; i < 25; i++) {
-      const dust = document.createElement('div')
-      dust.style.cssText = `position:fixed;width:2px;height:2px;background:rgba(232,200,150,0.4);border-radius:50%;pointer-events:none;z-index:1;left:${20+Math.random()*60}%;top:${15+Math.random()*55}%;animation:dust-drift ${5+Math.random()*8}s linear ${Math.random()*10}s infinite`
-      ref.current.appendChild(dust)
-    }
-  }, [])
-  return <div ref={ref} />
-}
+const HTML = `<!-- Global Navigation -->
+<nav style="position:fixed;top:0;left:0;width:100%;z-index:50;display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:1rem 2rem;background:rgba(10,10,12,0.75);backdrop-filter:blur(12px);border-bottom:1px solid rgba(232,160,80,0.06)">
+  <a href="/" style="font-family:'Cormorant Garamond',serif;font-size:0.85rem;letter-spacing:0.12em;color:rgba(232,160,80,0.6);text-decoration:none;margin-right:1.5rem;padding-right:1.5rem;border-right:1px solid rgba(232,160,80,0.1)">Memory Palace</a>
+  <a href="/" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Entrance</a>
+  <a href="02-wing.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Wings</a>
+  <a href="03-room.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Rooms</a>
+  <a href="04-diary.html" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Diary</a>
+  <a href="/tunnels" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Tunnels</a>
+  <a href="/contacts" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Contacts</a>
+  <a href="/skills" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Skills</a>
+</nav>
 
-const ROOM_PEEKS: Record<string, string> = {
-  'business': '"Pricing fear is always about self-worth, never about the number."',
-  'personal': '"She talked about her son for the first time today."',
-  'growth': '"First time she set a boundary with a client."',
-  'challenges': '"Imposter syndrome hit hard when she got the big client."',
-  'wins': '"12 signups in one week. She cried."',
-  'behavioral': '"Voice tremor spikes when discussing revenue."',
-  'avatar-diary': '"I learned to ask the self-worth question before the pricing question."',
-}
 
-export default function WingPage() {
-  const { avatarSlug } = useParams<{ avatarSlug: string }>()
-  const avatar = AVATARS.find(a => a.slug === avatarSlug) ?? AVATARS[0]
+<!-- Fixed corridor background -->
+<div class="corridor-bg">
+  <div class="ceiling"></div>
+  <div class="floor"></div>
+  <div class="wall-left"></div>
+  <div class="wall-right"></div>
+  <div class="vanishing-glow"></div>
+</div>
 
-  return (
-    <div style={{ background: 'var(--night)', color: 'var(--night-text)', minHeight: '100vh' }}>
-      {/* Fixed corridor background */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-0 left-[-20%] w-[140%] h-[35%]" style={{ background: 'linear-gradient(0deg, #18142A 0%, #0A0810 100%)', transform: 'perspective(800px) rotateX(-35deg)', transformOrigin: 'top center' }} />
-        <div className="absolute bottom-0 left-[-20%] w-[140%] h-[50%]" style={{ background: 'linear-gradient(180deg, #15121E 0%, #0D0B14 100%)', transform: 'perspective(800px) rotateX(45deg)', transformOrigin: 'bottom center' }} />
-        <div className="absolute top-0 left-0 w-[30%] h-full" style={{ background: 'linear-gradient(90deg, #0C0A12 0%, #14111E 60%, transparent 100%)' }} />
-        <div className="absolute top-0 right-0 w-[30%] h-full" style={{ background: 'linear-gradient(-90deg, #0C0A12 0%, #14111E 60%, transparent 100%)' }} />
-        <div className="absolute top-[30%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120px] h-[200px]" style={{ background: 'radial-gradient(ellipse, rgba(232,160,80,0.1) 0%, transparent 70%)', animation: 'deep-pulse 6s ease-in-out infinite alternate' }} />
-      </div>
+<div class="light-ray ray-1"></div>
+<div class="light-ray ray-2"></div>
+<div class="light-ray ray-3"></div>
+<div class="light-ray ray-4"></div>
 
-      {/* Light rays */}
-      {[{ left: '30%', rot: -5 }, { left: '45%', rot: -1, h: '45%', o: 0.3 }, { left: '55%', rot: 1, h: '48%', o: 0.4 }, { left: '70%', rot: 5 }].map((r, i) => (
-        <div key={i} className="fixed top-0 w-[2px] pointer-events-none z-[1]" style={{
-          left: r.left, height: r.h ?? '55%', opacity: r.o ?? 0.5,
-          background: 'linear-gradient(180deg, rgba(232,160,80,0.06) 0%, transparent 100%)',
-          transformOrigin: 'top center', transform: `rotate(${r.rot}deg)`,
-        }} />
-      ))}
+<div class="torch torch-left-1"></div>
+<div class="torch torch-left-2"></div>
+<div class="torch torch-right-1"></div>
+<div class="torch torch-right-2"></div>
 
-      {/* Torches */}
-      {[{ left: '10%', top: '28%' }, { left: '15%', top: '50%' }, { right: '10%', top: '28%' }, { right: '15%', top: '50%' }].map((pos, i) => (
-        <div key={i} className="fixed w-[6px] h-[16px] rounded-t-full z-[1] pointer-events-none" style={{
-          ...pos,
-          background: 'linear-gradient(180deg, #F0C060 0%, #E8A050 50%, #8B5A3A 100%)',
-        }}>
-          <div className="absolute -top-[30px] -left-[40px] w-[86px] h-[70px]" style={{
-            background: 'radial-gradient(ellipse, rgba(232,160,80,0.15) 0%, rgba(232,160,80,0.05) 40%, transparent 70%)',
-            animation: 'torch-flicker 3s ease-in-out infinite alternate',
-          }} />
-        </div>
-      ))}
+<div id="dust-container"></div>
 
-      <DustParticles />
+<!-- Scrollable content -->
+<div class="content">
 
-      {/* Content */}
-      <div className="relative z-[5]">
-        {/* Back button */}
-        <Link to="/" className="back-btn fixed top-8 left-10 z-20">
-          <span className="arrow text-lg">&larr;</span> Palace Entrance
-        </Link>
+  <!-- Back -->
+  <a class="back-btn" onclick="history.back()">
+    <span class="arrow">&larr;</span>
+    <span>Palace Entrance</span>
+  </a>
 
-        {/* Wing header */}
-        <section className="pt-28 pb-12 text-center" style={{ animation: 'fade-down 1.5s ease-out 0.3s both' }}>
-          <div className="inline-block px-6 py-1.5 mb-6 text-[0.65rem] tracking-[0.5em] uppercase rounded-sm" style={{
-            border: '1px solid rgba(232,160,80,0.15)',
-            color: 'rgba(232,160,80,0.5)',
-            background: 'rgba(232,160,80,0.03)',
-          }}>
-            You are inside Wing {avatar.wingNumber}
-          </div>
-          <h1 className="font-light tracking-wide mb-2" style={{
-            fontFamily: "'Cormorant Garamond', serif",
-            fontSize: 'clamp(2.5rem, 5vw, 4rem)',
-            textShadow: '0 2px 40px rgba(0,0,0,0.6)',
-          }}>
-            {avatar.name}
-          </h1>
-          <p className="font-light italic text-lg" style={{ color: 'rgba(232,224,208,0.4)', fontFamily: "'Cormorant Garamond', serif" }}>
-            {avatar.role}
-          </p>
-          <div className="flex gap-10 justify-center mt-5 flex-wrap">
-            {[{ n: '49', l: 'Memories' }, { n: '7', l: 'Rooms' }, { n: '3', l: 'Skills learned' }, { n: '12', l: 'Sessions' }].map(s => (
-              <div key={s.l} className="text-center">
-                <div className="text-2xl" style={{ color: 'var(--gold-accent)', fontFamily: "'Cormorant Garamond', serif" }}>{s.n}</div>
-                <div className="text-[0.6rem] tracking-[0.2em] uppercase mt-1" style={{ color: 'rgba(232,224,208,0.3)', fontFamily: "'DM Sans', sans-serif" }}>{s.l}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <div className="w-[60px] h-px mx-auto" style={{ background: 'rgba(232,160,80,0.2)' }} />
-
-        {/* Rooms */}
-        <section className="px-8 md:px-16 py-12" style={{ animation: 'fade-up 1.6s ease-out 0.6s both' }}>
-          <p className="text-center text-[0.7rem] tracking-[0.5em] uppercase mb-12" style={{ color: 'rgba(232,224,208,0.25)' }}>
-            Open a Room
-          </p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 max-w-[1000px] mx-auto pb-4">
-            {ROOMS.map(room => {
-              const isDiary = room === 'avatar-diary'
-              const to = isDiary ? `/wing/${avatar.slug}/diary` : `/wing/${avatar.slug}/room/${room}`
-              return (
-                <Link key={room} to={to} className={`room-door ${isDiary ? 'diary-door' : ''}`}>
-                  <div className="door-frame" style={{
-                    width: '100%',
-                    aspectRatio: '0.55',
-                    borderRadius: '50% 50% 0 0 / 25% 25% 0 0',
-                    border: `1px solid rgba(232,160,80,${isDiary ? 0.18 : 0.1})`,
-                    background: isDiary
-                      ? 'linear-gradient(180deg, rgba(30,22,15,0.95) 0%, rgba(20,15,10,0.98) 50%, rgba(12,9,6,1) 100%)'
-                      : 'linear-gradient(180deg, rgba(20,17,30,0.95) 0%, rgba(15,12,22,0.98) 50%, rgba(10,8,15,1) 100%)',
-                    boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-                    position: 'relative' as const,
-                    overflow: 'hidden' as const,
-                    transition: 'all 0.6s cubic-bezier(0.23, 1, 0.32, 1)',
-                  }}>
-                    <div className="absolute" style={{
-                      inset: '10%',
-                      borderRadius: '50% 50% 0 0 / 20% 20% 0 0',
-                      background: `radial-gradient(ellipse at 50% 30%, rgba(232,160,80,${isDiary ? 0.07 : 0.04}) 0%, transparent 60%)`,
-                    }} />
-                    <div className="absolute rounded-sm" style={{
-                      right: '20%', top: '55%', width: '4px', height: '18px',
-                      background: `rgba(232,160,80,${isDiary ? 0.5 : 0.3})`,
-                    }} />
-                    <div className="door-glow absolute" style={{
-                      bottom: '-5px', left: '10%', width: '80%', height: '25px',
-                      background: 'radial-gradient(ellipse at 50% 100%, rgba(232,160,80,0.2) 0%, transparent 70%)',
-                      opacity: isDiary ? 0.5 : 0.3,
-                      transition: 'opacity 0.5s ease',
-                    }} />
-                    <div className="door-peek absolute pointer-events-none" style={{
-                      bottom: '12%', left: '10%', right: '10%',
-                      opacity: 0, transform: 'translateY(8px)',
-                      transition: 'all 0.5s cubic-bezier(0.23, 1, 0.32, 1)',
-                    }}>
-                      <p className="italic leading-relaxed" style={{
-                        fontFamily: "'Cormorant Garamond', serif",
-                        fontSize: '0.72rem',
-                        color: 'rgba(232,224,208,0.45)',
-                      }}>
-                        {ROOM_PEEKS[room] ?? ''}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-center mt-4 pb-2">
-                    <div className="door-name" style={{
-                      fontFamily: "'Cormorant Garamond', serif",
-                      fontSize: '1rem', fontWeight: 400, letterSpacing: '0.05em',
-                      color: isDiary ? 'rgba(232,160,80,0.6)' : 'rgba(232,224,208,0.65)',
-                      transition: 'color 0.4s ease',
-                    }}>
-                      {room === 'avatar-diary' ? 'Avatar Diary' : room.charAt(0).toUpperCase() + room.slice(1)}
-                    </div>
-                    <div className="door-count" style={{
-                      fontFamily: "'DM Sans', sans-serif",
-                      fontSize: '0.6rem', letterSpacing: '0.15em', textTransform: 'uppercase' as const,
-                      color: 'rgba(232,160,80,0.4)',
-                      marginTop: '0.25rem', opacity: 0, transition: 'opacity 0.4s ease',
-                    }}>
-                      {room === 'avatar-diary' ? '2 entries' : `${Math.floor(Math.random() * 20 + 3)} memories`}
-                    </div>
-                  </div>
-                </Link>
-              )
-            })}
-          </div>
-        </section>
-
-        {/* Diary preview */}
-        <section className="py-16 text-center" style={{ animation: 'fade-up 1.8s ease-out 1s both' }}>
-          <div className="w-[40px] h-px mx-auto mb-8" style={{ background: 'rgba(232,160,80,0.15)' }} />
-          <p className="text-[0.65rem] tracking-[0.4em] uppercase mb-5" style={{ color: 'rgba(232,160,80,0.3)' }}>
-            {avatar.name}'s latest reflection
-          </p>
-          <p className="italic font-light text-lg max-w-[560px] mx-auto leading-relaxed px-4" style={{
-            fontFamily: "'Cormorant Garamond', serif",
-            color: 'rgba(232,224,208,0.45)',
-          }}>
-            "When someone switches topics fast, they are avoiding something. I now skip the surface and go straight to what they are protecting."
-          </p>
-          <p className="text-[0.7rem] mt-4 tracking-wide" style={{ color: 'rgba(232,224,208,0.2)' }}>April 13, 2026</p>
-          <Link to={`/wing/${avatar.slug}/diary`} className="diary-link mt-6">
-            Read full diary
-          </Link>
-        </section>
-      </div>
+  <!-- Wing header -->
+  <section class="wing-header">
+    <div class="wing-context">You are inside Wing I</div>
+    <h1>Trace Flores</h1>
+    <p class="role">Business Strategist &amp; Pattern Architect</p>
+    <div class="wing-stats">
+      <div class="wing-stat"><div class="num">49</div><div class="label">Memories</div></div>
+      <div class="wing-stat"><div class="num">7</div><div class="label">Rooms</div></div>
+      <div class="wing-stat"><div class="num">3</div><div class="label">Skills learned</div></div>
+      <div class="wing-stat"><div class="num">12</div><div class="label">Sessions</div></div>
     </div>
-  )
+  </section>
+
+  <div class="wing-divider"></div>
+
+  <!-- Rooms -->
+  <section class="rooms-section">
+    <p class="rooms-label">Open a Room</p>
+
+    <div class="rooms-grid">
+
+      <div class="room-door" onclick="window.location.href='room-business.html'">
+        <div class="door-frame">
+          <div class="door-interior"></div>
+          <div class="door-handle"></div>
+          <div class="door-glow"></div>
+          <div class="door-peek">
+            <p class="peek-line">"Pricing fear is always about self-worth, never about the number."</p>
+          </div>
+        </div>
+        <div class="door-label">
+          <div class="door-name">Business</div>
+          <div class="door-count">23 memories</div>
+        </div>
+      </div>
+
+      <div class="room-door" onclick="window.location.href='room-personal.html'">
+        <div class="door-frame">
+          <div class="door-interior"></div>
+          <div class="door-handle"></div>
+          <div class="door-glow"></div>
+          <div class="door-peek">
+            <p class="peek-line">"She talked about her son for the first time today."</p>
+          </div>
+        </div>
+        <div class="door-label">
+          <div class="door-name">Personal</div>
+          <div class="door-count">8 memories</div>
+        </div>
+      </div>
+
+      <div class="room-door" onclick="window.location.href='room-growth.html'">
+        <div class="door-frame">
+          <div class="door-interior"></div>
+          <div class="door-handle"></div>
+          <div class="door-glow"></div>
+          <div class="door-peek">
+            <p class="peek-line">"First time she set a boundary with a client."</p>
+          </div>
+        </div>
+        <div class="door-label">
+          <div class="door-name">Growth</div>
+          <div class="door-count">6 memories</div>
+        </div>
+      </div>
+
+      <div class="room-door" onclick="window.location.href='room-challenges.html'">
+        <div class="door-frame">
+          <div class="door-interior"></div>
+          <div class="door-handle"></div>
+          <div class="door-glow"></div>
+          <div class="door-peek">
+            <p class="peek-line">"Imposter syndrome hit hard when she got the big client."</p>
+          </div>
+        </div>
+        <div class="door-label">
+          <div class="door-name">Challenges</div>
+          <div class="door-count">5 memories</div>
+        </div>
+      </div>
+
+      <div class="room-door" onclick="window.location.href='room-wins.html'">
+        <div class="door-frame">
+          <div class="door-interior"></div>
+          <div class="door-handle"></div>
+          <div class="door-glow"></div>
+          <div class="door-peek">
+            <p class="peek-line">"12 signups in one week. She cried."</p>
+          </div>
+        </div>
+        <div class="door-label">
+          <div class="door-name">Wins</div>
+          <div class="door-count">4 memories</div>
+        </div>
+      </div>
+
+      <div class="room-door" onclick="window.location.href='room-behavioral.html'">
+        <div class="door-frame">
+          <div class="door-interior"></div>
+          <div class="door-handle"></div>
+          <div class="door-glow"></div>
+          <div class="door-peek">
+            <p class="peek-line">"Voice tremor spikes when discussing revenue."</p>
+          </div>
+        </div>
+        <div class="door-label">
+          <div class="door-name">Behavioral</div>
+          <div class="door-count">3 memories</div>
+        </div>
+      </div>
+
+      <div class="room-door diary-door" onclick="window.location.href='diary-trace.html'">
+        <div class="door-frame">
+          <div class="door-interior"></div>
+          <div class="door-handle"></div>
+          <div class="door-glow"></div>
+          <div class="door-peek">
+            <p class="peek-line">"I learned to ask the self-worth question before the pricing question."</p>
+          </div>
+        </div>
+        <div class="door-label">
+          <div class="door-name">Avatar Diary</div>
+          <div class="door-count">2 entries</div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Diary preview -->
+  <section class="diary-section">
+    <div class="diary-divider"></div>
+    <p class="diary-label">Trace's latest reflection</p>
+    <p class="diary-quote">"When someone switches topics fast, they are avoiding something. I now skip the surface and go straight to what they are protecting."</p>
+    <p class="diary-date">April 13, 2026</p>
+    <a class="diary-link" onclick="window.location.href='diary-trace.html'">Read full diary</a>
+  </section>
+
+</div>
+
+<script>
+// Generate dust particles
+const dustContainer = document.getElementById('dust-container');
+for (let i = 0; i < 25; i++) {
+  const dust = document.createElement('div');
+  dust.className = 'dust';
+  dust.style.left = (20 + Math.random() * 60) + '%';
+  dust.style.top = (15 + Math.random() * 55) + '%';
+  dust.style.animationDuration = (5 + Math.random() * 8) + 's';
+  dust.style.animationDelay = (Math.random() * 10) + 's';
+  dustContainer.appendChild(dust);
+}
+</script>`;
+
+export default function WingPage(){
+  const ref = useRef<HTMLDivElement>(null);
+  const params = useParams();
+  useEffect(()=>{
+    const root=ref.current; if(!root) return;
+    (async()=>{
+      try{const s=await fetchPalaceStatus();const vals=root.querySelectorAll('.stats-bar .text-xl'); if(vals[0]) vals[0].textContent=String(Object.keys(s?.wings||{}).length||0); if(vals[1]) vals[1].textContent=String(s?.total_drawers||0);}catch{}
+      try{const slug=(params.slug as string)||'trace-flores'; const room=(params.room as string)||'business'; const res=await searchPalace('pricing',slug,room); const list=root.querySelector('.room-live-list'); if(list && Array.isArray(res?.results)){ list.innerHTML=''; res.results.slice(0,8).forEach((r:any)=>{const el=document.createElement('div'); el.className='drawer-item'; el.innerHTML=`<div class="flex justify-between items-start gap-8"><div class="text-[0.6rem] tracking-[0.1em] min-w-[90px] pt-1">${r.date||''}</div><div class="flex-1"><div class="drawer-title">${r.title||r.summary||'Memory'}</div><div class="text-sm font-light leading-relaxed">${r.summary||r.content||''}</div></div></div>`; list.appendChild(el);}); }}catch{}
+      try{const d=await readDiary((params.slug as string)||'trace-flores',10); const n=root.querySelector('.diary-live-count'); if(n) n.textContent=String(Array.isArray(d?.entries)?d.entries.length:0);}catch{}
+      try{const [c,m,v]=await Promise.all([fetchContacts(),fetchMemories(),fetchConversationMemory()]); const c1=root.querySelector('.contacts-live-count'); const c2=root.querySelector('.sessions-live-count'); if(c1) c1.textContent=String(Array.isArray(c)?c.length:0); if(c2) c2.textContent=String((Array.isArray(m)?m.length:0)+(Array.isArray(v)?v.length:0));}catch{}
+    })();
+  },[params.slug,params.room]);
+  return <div ref={ref} dangerouslySetInnerHTML={{__html:HTML}} />;
 }
