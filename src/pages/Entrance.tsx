@@ -160,23 +160,23 @@ export default function EntrancePage(){
       try{
         const s=await fetchPalaceStatus();
         const vals=root.querySelectorAll('.stats-bar .val');
-        const wingCount = AVATAR_SLUGS.filter((slug)=>typeof s?.wings?.[slug] !== "undefined").length;
-        const roomCount = STANDARD_ROOMS.filter((room)=>typeof s?.rooms?.[room] !== "undefined").length;
         const diaryTotals = await Promise.all(AVATAR_SLUGS.map(async (slug)=>{ try { const d = await readDiary(slug,100); return Number(d?.total ?? d?.entries?.length ?? 0); } catch { return 0; } }));
         const diaryCount = diaryTotals.reduce((a,b)=>a+b,0);
-        if(vals[0]) vals[0].textContent=String(wingCount||0);
-        if(vals[1]) vals[1].textContent=String(s?.total_drawers||0);
-        if(vals[2]) vals[2].textContent=String(diaryCount||0);
-        if(vals[3]) vals[3].textContent=String(roomCount||0);
+        // Wings and Rooms are a fixed structural count, not derived from /status.
+        if(vals[0]) vals[0].textContent=String(AVATAR_SLUGS.length);
+        if(vals[1]) vals[1].textContent=String(s?.total_drawers ?? 0);
+        if(vals[2]) vals[2].textContent=String(diaryCount);
+        if(vals[3]) vals[3].textContent=String(STANDARD_ROOMS.length);
 
         const corridors=Array.from(root.querySelectorAll('.wing-corridor'));
         corridors.forEach((c)=>{
           const href=(c as HTMLAnchorElement).getAttribute("href")||"";
           const slug=href.split("/wing/")[1]||"";
           const key=slug.replace(/-/g,"_");
-          const count=(s?.wings?.[slug] ?? s?.wings?.[key] ?? s?.wings?.[`wing_${key}`] ?? 0);
+          // Prefer the exact slug; fall back to underscore or legacy "wing_*" keys.
+          const count=Number(s?.wings?.[slug] ?? s?.wings?.[key] ?? s?.wings?.[`wing_${key}`] ?? 0);
           const label=c.querySelector('.corridor-count');
-          if(label) label.textContent=`${count} Memories`;
+          if(label) label.textContent=`${count} Memor${count===1?"y":"ies"}`;
         });
       }catch{}
     })();

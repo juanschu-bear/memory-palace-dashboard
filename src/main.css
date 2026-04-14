@@ -106,7 +106,7 @@ body {
 /* Palace building */
 .palace-silhouette {
   position: absolute;
-  bottom: 21%;
+  bottom: 24%;
   left: 50%; transform: translateX(-50%);
   width: 60%; max-width: 780px;
   height: 50%;
@@ -164,7 +164,7 @@ body {
 }
 
 .ground {
-  position: absolute; bottom: 0; width: 100%; height: 16%;
+  position: absolute; bottom: 3rem; width: 100%; height: 16%;
   background: linear-gradient(180deg, #0E0C12 0%, #0A090E 100%);
 }
 
@@ -179,7 +179,7 @@ body {
 /* Text overlay */
 .overlay-text {
   position: absolute;
-  bottom: 22%; left: 50%; transform: translateX(-50%);
+  bottom: 25%; left: 50%; transform: translateX(-50%);
   text-align: center; z-index: 10;
   animation: breathe-in 2s ease-out 0.5s both;
 }
@@ -226,7 +226,7 @@ body {
 .stats-bar {
   position: absolute; bottom: 0; width: 100%;
   display: flex; justify-content: center; gap: 4rem;
-  padding: 0.75rem 2rem;
+  padding: 0.4rem 2rem;
   background: rgba(10,10,12,0.8);
   backdrop-filter: blur(12px);
   border-top: 1px solid rgba(232,160,80,0.08);
@@ -237,7 +237,7 @@ body {
 .stat-item { text-align: center; }
 
 .stat-item .val {
-  font-size: 1.6rem; font-weight: 400; color: #E8A050;
+  font-size: 1.3rem; font-weight: 400; color: #E8A050;
 }
 
 .stat-item .lbl {
@@ -1815,6 +1815,11 @@ body {
   fill-opacity: 1;
 }
 
+.wing-node-active .node-label { fill-opacity: 1; font-size: 14px; }
+.wing-node-active .node-circle {
+  filter: drop-shadow(0 0 10px rgba(232, 160, 80, 0.35));
+}
+
 .node-circle {
   transition: all 0.5s cubic-bezier(0.23, 1, 0.32, 1);
 }
@@ -3057,6 +3062,219 @@ body.light-contacts::before {
   font-style: italic;
   font-size: 0.95rem;
   color: rgba(232, 224, 208, 0.55);
+}
+
+/* Skills empty / loading / click-expand */
+.skills-loading,
+.skills-empty {
+  padding: 2.4rem 1.8rem;
+  border: 1px dashed rgba(232, 160, 80, 0.18);
+  border-radius: 4px;
+  background: rgba(16, 14, 20, 0.4);
+  text-align: center;
+}
+.skills-empty-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.25rem;
+  color: rgba(232, 224, 208, 0.8);
+  margin-bottom: 0.4rem;
+}
+.skills-empty-sub {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.78rem;
+  color: rgba(232, 224, 208, 0.4);
+  line-height: 1.6;
+}
+.skills-empty code {
+  background: rgba(232, 160, 80, 0.1);
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.72rem;
+}
+
+.skill-detail-card {
+  cursor: pointer;
+  transition: border-color 0.3s ease, background 0.3s ease;
+}
+.skill-detail-card:hover { border-color: rgba(232, 160, 80, 0.25); }
+.skill-detail-card:focus-visible {
+  outline: 1px solid rgba(232, 160, 80, 0.4);
+  outline-offset: 2px;
+}
+
+.skill-detail-panel {
+  grid-column: 1 / -1;
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.4s ease, opacity 0.4s ease, margin 0.4s ease;
+}
+.skill-detail-card-open .skill-detail-panel {
+  max-height: 600px;
+  opacity: 1;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px dashed rgba(232, 160, 80, 0.15);
+}
+.skill-ref {
+  padding: 0.6rem 0;
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 1rem;
+  border-bottom: 1px dashed rgba(232, 160, 80, 0.06);
+}
+.skill-ref:last-child { border-bottom: none; }
+.skill-ref-date {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.65rem;
+  color: rgba(232, 224, 208, 0.35);
+  letter-spacing: 0.08em;
+}
+.skill-ref-body {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-size: 0.95rem;
+  color: rgba(232, 224, 208, 0.6);
+}
+
+/* Contact expand panel */
+.contact-card.contact-card-open {
+  background: rgba(184, 149, 106, 0.04);
+  padding-left: 0.8rem;
+}
+
+.contact-detail-panel {
+  grid-column: 1 / -1;
+  margin-top: 1rem;
+  padding: 1.2rem 0.4rem 0.4rem;
+  border-top: 1px dashed rgba(184, 149, 106, 0.35);
+  display: grid;
+  gap: 1.4rem;
+}
+
+.contact-panel-section h3 {
+  font-family: 'Cormorant Garamond', serif;
+  font-weight: 400;
+  font-size: 1.1rem;
+  color: #2A241A;
+  margin-bottom: 0.6rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.contact-panel-section h3 .count {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.7rem;
+  color: rgba(184, 149, 106, 0.9);
+  letter-spacing: 0.1em;
+}
+
+.contact-panel-empty {
+  font-style: italic;
+  color: rgba(42, 36, 26, 0.45);
+  font-size: 0.9rem;
+}
+
+.contact-conv-list {
+  list-style: none;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0;
+}
+.contact-conv-list li {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 1rem;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid rgba(184, 149, 106, 0.12);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.82rem;
+}
+.conv-date { color: rgba(42, 36, 26, 0.4); letter-spacing: 0.08em; }
+.conv-summary { color: rgba(42, 36, 26, 0.75); font-family: 'Cormorant Garamond', serif; font-size: 0.95rem; }
+
+.contact-mem-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.7rem;
+}
+
+.contact-mem-card {
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(184, 149, 106, 0.2);
+  border-radius: 4px;
+  background: rgba(253, 251, 247, 0.85);
+}
+
+.contact-mem-card .mem-meta {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  color: rgba(184, 149, 106, 0.85);
+  margin-bottom: 0.25rem;
+}
+.contact-mem-card .mem-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1rem;
+  color: #2A241A;
+  margin-bottom: 0.3rem;
+}
+.contact-mem-card .mem-body {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.78rem;
+  font-weight: 300;
+  color: rgba(42, 36, 26, 0.6);
+  line-height: 1.5;
+}
+
+.contacts-empty {
+  padding: 3rem 1rem;
+  text-align: center;
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  color: rgba(42, 36, 26, 0.4);
+}
+
+/* Diary empty / loading */
+.diary-loading,
+.diary-empty {
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  font-family: 'Cormorant Garamond', serif;
+  color: rgba(44, 36, 22, 0.55);
+  font-style: italic;
+}
+.diary-empty p { margin-bottom: 0.4rem; font-size: 1.1rem; }
+.diary-empty-sub { font-size: 0.9rem; opacity: 0.65; }
+
+body:not(.light-diary) .diary-loading,
+body:not(.light-diary) .diary-empty {
+  color: rgba(232, 224, 208, 0.4);
+}
+
+/* Room empty / loading states */
+.drawer-loading,
+.drawer-empty {
+  padding: 2.2rem 2rem;
+  text-align: center;
+  border: 1px dashed rgba(232, 160, 80, 0.15);
+  border-radius: 4px;
+  background: rgba(16, 14, 20, 0.35);
+  color: rgba(232, 224, 208, 0.45);
+}
+
+.drawer-empty-title {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.4rem;
+  color: rgba(232, 224, 208, 0.75);
+  margin-bottom: 0.5rem;
+}
+
+.drawer-empty-sub {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8rem;
+  color: rgba(232, 224, 208, 0.35);
+  line-height: 1.6;
 }
 
 /* Avatar-scoped Tunnels/Skills eyebrows */

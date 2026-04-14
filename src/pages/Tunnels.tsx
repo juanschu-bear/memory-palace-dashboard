@@ -36,47 +36,41 @@ const HTML = `<nav class="breadcrumb">
     <!-- Brian <-> Elena: Personal/Growth -->
     <line class="tunnel-line" x1="550" y1="340" x2="350" y2="400" stroke="#E8A050" stroke-width="1" stroke-opacity="0.06"/>
 
-    <!-- Wing nodes -->
-    <!-- Trace Flores -->
-    <g class="wing-node" transform="translate(200, 180)">
-      <circle class="node-circle" r="38" fill="#E8A050" fill-opacity="0.08" stroke="#E8A050" stroke-opacity="0.4" stroke-width="1"/>
+    <!-- Wing nodes (sublabels populated at runtime from /status.wings) -->
+    <g class="wing-node" data-slug="trace-flores" transform="translate(200, 180)">
+      <circle class="node-circle" r="34" fill="#E8A050" fill-opacity="0.06" stroke="#E8A050" stroke-opacity="0.3" stroke-width="0.8"/>
       <text class="node-label" text-anchor="middle" dy="-4">Trace</text>
-      <text class="node-sublabel" text-anchor="middle" dy="12">49 memories</text>
+      <text class="node-sublabel" text-anchor="middle" dy="12">— memories</text>
     </g>
 
-    <!-- Juan Schubert -->
-    <g class="wing-node" transform="translate(350, 80)">
+    <g class="wing-node" data-slug="juan-schubert" transform="translate(350, 80)">
       <circle class="node-circle" r="30" fill="#E8A050" fill-opacity="0.05" stroke="#E8A050" stroke-opacity="0.25" stroke-width="0.8"/>
       <text class="node-label" text-anchor="middle" dy="-4">Juan</text>
-      <text class="node-sublabel" text-anchor="middle" dy="12">0 memories</text>
+      <text class="node-sublabel" text-anchor="middle" dy="12">— memories</text>
     </g>
 
-    <!-- Adri Kastel -->
-    <g class="wing-node" transform="translate(500, 160)">
-      <circle class="node-circle" r="32" fill="#E8A050" fill-opacity="0.06" stroke="#E8A050" stroke-opacity="0.3" stroke-width="0.8"/>
+    <g class="wing-node" data-slug="adri-kastel" transform="translate(500, 160)">
+      <circle class="node-circle" r="30" fill="#E8A050" fill-opacity="0.05" stroke="#E8A050" stroke-opacity="0.25" stroke-width="0.8"/>
       <text class="node-label" text-anchor="middle" dy="-4">Adri</text>
-      <text class="node-sublabel" text-anchor="middle" dy="12">0 memories</text>
+      <text class="node-sublabel" text-anchor="middle" dy="12">— memories</text>
     </g>
 
-    <!-- Prof Brian Cox -->
-    <g class="wing-node" transform="translate(550, 340)">
-      <circle class="node-circle" r="28" fill="#E8A050" fill-opacity="0.04" stroke="#E8A050" stroke-opacity="0.2" stroke-width="0.6"/>
+    <g class="wing-node" data-slug="prof-brian-cox" transform="translate(550, 340)">
+      <circle class="node-circle" r="30" fill="#E8A050" fill-opacity="0.05" stroke="#E8A050" stroke-opacity="0.25" stroke-width="0.8"/>
       <text class="node-label" text-anchor="middle" dy="-4">Brian</text>
-      <text class="node-sublabel" text-anchor="middle" dy="12">0 memories</text>
+      <text class="node-sublabel" text-anchor="middle" dy="12">— memories</text>
     </g>
 
-    <!-- Clara Fontaine -->
-    <g class="wing-node" transform="translate(150, 350)">
-      <circle class="node-circle" r="28" fill="#E8A050" fill-opacity="0.04" stroke="#E8A050" stroke-opacity="0.2" stroke-width="0.6"/>
+    <g class="wing-node" data-slug="clara-fontaine" transform="translate(150, 350)">
+      <circle class="node-circle" r="30" fill="#E8A050" fill-opacity="0.05" stroke="#E8A050" stroke-opacity="0.25" stroke-width="0.8"/>
       <text class="node-label" text-anchor="middle" dy="-4">Clara</text>
-      <text class="node-sublabel" text-anchor="middle" dy="12">0 memories</text>
+      <text class="node-sublabel" text-anchor="middle" dy="12">— memories</text>
     </g>
 
-    <!-- Elena Navarro -->
-    <g class="wing-node" transform="translate(350, 400)">
-      <circle class="node-circle" r="26" fill="#E8A050" fill-opacity="0.03" stroke="#E8A050" stroke-opacity="0.15" stroke-width="0.5"/>
+    <g class="wing-node" data-slug="elena-navarro" transform="translate(350, 400)">
+      <circle class="node-circle" r="30" fill="#E8A050" fill-opacity="0.05" stroke="#E8A050" stroke-opacity="0.25" stroke-width="0.8"/>
       <text class="node-label" text-anchor="middle" dy="-4">Elena</text>
-      <text class="node-sublabel" text-anchor="middle" dy="12">0 memories</text>
+      <text class="node-sublabel" text-anchor="middle" dy="12">— memories</text>
     </g>
 
     <!-- Room labels on strong tunnels -->
@@ -157,11 +151,70 @@ export default function TunnelsPage(){
   useEffect(()=>{
     const root=ref.current; if(!root) return;
     (async()=>{
-      try{const s=await fetchPalaceStatus();const vals=root.querySelectorAll('.stats-bar .text-xl'); if(vals[0]) vals[0].textContent=String(Object.keys(s?.wings||{}).length||0); if(vals[1]) vals[1].textContent=String(s?.total_drawers||0);}catch{}
-      try{const room=(params.room as string)||'business'; const res=await searchPalace('pricing',slug,room); const list=root.querySelector('.room-live-list'); if(list && Array.isArray(res?.results)){ list.innerHTML=''; res.results.slice(0,8).forEach((r:any)=>{const el=document.createElement('div'); el.className='drawer-item'; el.innerHTML=`<div class="flex justify-between items-start gap-8"><div class="text-[0.6rem] tracking-[0.1em] min-w-[90px] pt-1">${r.date||''}</div><div class="flex-1"><div class="drawer-title">${r.title||r.summary||'Memory'}</div><div class="text-sm font-light leading-relaxed">${r.summary||r.content||''}</div></div></div>`; list.appendChild(el);}); }}catch{}
-      try{const d=await readDiary(slug,10); const n=root.querySelector('.diary-live-count'); if(n) n.textContent=String(Array.isArray(d?.entries)?d.entries.length:0);}catch{}
-      try{const [c,m,v]=await Promise.all([fetchContacts(),fetchMemories(),fetchConversationMemory()]); const c1=root.querySelector('.contacts-live-count'); const c2=root.querySelector('.sessions-live-count'); if(c1) c1.textContent=String(Array.isArray(c)?c.length:0); if(c2) c2.textContent=String((Array.isArray(m)?m.length:0)+(Array.isArray(v)?v.length:0));}catch{}
+      let status: any = null;
+      try { status = await fetchPalaceStatus(); } catch (err) { console.error("Tunnels /status failed:", err); }
+
+      // Populate each wing node with its actual memory count from /status.wings.
+      const wings = (status?.wings || {}) as Record<string, number>;
+      const countFor = (wingSlug: string) => {
+        const key = wingSlug.replace(/-/g, "_");
+        return Number(wings?.[wingSlug] ?? wings?.[key] ?? wings?.[`wing_${key}`] ?? 0);
+      };
+      root.querySelectorAll<SVGGElement>('.wing-node[data-slug]').forEach((node) => {
+        const wingSlug = node.dataset.slug || "";
+        const count = countFor(wingSlug);
+        const sublabel = node.querySelector('.node-sublabel');
+        if (sublabel) sublabel.textContent = `${count} memor${count === 1 ? "y" : "ies"}`;
+        // Emphasise the currently selected avatar so it stands out in the graph.
+        const isActive = wingSlug === slug;
+        node.classList.toggle("wing-node-active", isActive);
+        const circle = node.querySelector('.node-circle') as SVGCircleElement | null;
+        if (circle) {
+          circle.setAttribute("r", isActive ? "40" : "30");
+          circle.setAttribute("fill-opacity", isActive ? "0.14" : "0.05");
+          circle.setAttribute("stroke-opacity", isActive ? "0.55" : "0.25");
+          circle.setAttribute("stroke-width", isActive ? "1.2" : "0.8");
+        }
+      });
+
+      // Diary preview for this avatar (if the layout exposes those counters).
+      try {
+        const d = await readDiary(slug, 10);
+        const n = root.querySelector('.diary-live-count');
+        if (n) n.textContent = String(Array.isArray(d?.entries) ? d.entries.length : 0);
+      } catch (err) {
+        console.error("Tunnels /diary/read failed:", err);
+      }
+
+      // Optional room-level semantic highlights for this avatar.
+      try {
+        const room = (params.room as string) || 'business';
+        const res = await searchPalace(profile.name, slug, room);
+        const list = root.querySelector('.room-live-list');
+        if (list && Array.isArray(res?.results)) {
+          list.innerHTML = '';
+          res.results.slice(0, 8).forEach((r: any) => {
+            const el = document.createElement('div');
+            el.className = 'drawer-item';
+            el.innerHTML = `<div class="drawer-title">${String(r.title || r.summary || 'Memory')}</div><div class="drawer-summary">${String(r.summary || r.content || '')}</div>`;
+            list.appendChild(el);
+          });
+        }
+      } catch (err) {
+        console.error("Tunnels /search failed:", err);
+      }
+
+      // Supabase globals for the small stats bar if present.
+      try {
+        const [c, m, v] = await Promise.all([fetchContacts(), fetchMemories(), fetchConversationMemory()]);
+        const c1 = root.querySelector('.contacts-live-count');
+        const c2 = root.querySelector('.sessions-live-count');
+        if (c1) c1.textContent = String(Array.isArray(c) ? c.length : 0);
+        if (c2) c2.textContent = String((Array.isArray(m) ? m.length : 0) + (Array.isArray(v) ? v.length : 0));
+      } catch (err) {
+        console.error("Tunnels Supabase fetch failed:", err);
+      }
     })();
-  },[slug, params.room]);
+  },[slug, profile.name, params.room]);
   return <div ref={ref} dangerouslySetInnerHTML={{__html:html}} />;
 }
