@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
-import { fetchPalaceStatus } from "@/lib/api";
+import { fetchMemories, fetchOwners, readDiary } from "@/lib/api";
 import { useParams } from "react-router-dom";
+import { findAvatar, memoriesForAvatar, memoryMatchesRoom } from "@/lib/avatars";
 
 const BASE_HTML = `<div class="corridor-bg"><div class="ceiling"></div><div class="floor"></div><div class="wall-left"></div><div class="wall-right"></div><div class="vanishing-glow"></div></div>
 <div class="light-ray ray-1"></div><div class="light-ray ray-2"></div><div class="light-ray ray-3"></div><div class="light-ray ray-4"></div>
@@ -12,56 +13,38 @@ const BASE_HTML = `<div class="corridor-bg"><div class="ceiling"></div><div clas
     <h1>__WING_NAME__</h1>
     <p class="role">__WING_ROLE__</p>
     <div class="wing-stats">
-      <div class="wing-stat"><div class="num wing-memory-count">0</div><div class="label">Memories</div></div>
+      <div class="wing-stat"><div class="num wing-memory-count">—</div><div class="label">Memories</div></div>
       <div class="wing-stat"><div class="num">7</div><div class="label">Rooms</div></div>
-      <div class="wing-stat"><div class="num">3</div><div class="label">Skills learned</div></div>
-      <div class="wing-stat"><div class="num">12</div><div class="label">Sessions</div></div>
+      <div class="wing-stat"><div class="num wing-skill-count">—</div><div class="label">Skills learned</div></div>
+      <div class="wing-stat"><div class="num wing-diary-count">—</div><div class="label">Diary entries</div></div>
     </div>
   </section>
   <div class="wing-divider"></div>
   <section class="rooms-section">
     <p class="rooms-label">Open a Room</p>
     <div class="rooms-grid">
-      <div class="room-door" data-route="/wing/__SLUG__/room/business"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div><div class="door-peek"><p class="peek-line">"Pricing fear is always about self-worth, never about the number."</p></div></div><div class="door-label"><div class="door-name">Business</div><div class="door-count">23 memories</div></div></div>
-      <div class="room-door" data-route="/wing/__SLUG__/room/personal"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div><div class="door-peek"><p class="peek-line">"She talked about her son for the first time today."</p></div></div><div class="door-label"><div class="door-name">Personal</div><div class="door-count">8 memories</div></div></div>
-      <div class="room-door" data-route="/wing/__SLUG__/room/growth"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div><div class="door-peek"><p class="peek-line">"First time she set a boundary with a client."</p></div></div><div class="door-label"><div class="door-name">Growth</div><div class="door-count">6 memories</div></div></div>
-      <div class="room-door" data-route="/wing/__SLUG__/room/challenges"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div><div class="door-peek"><p class="peek-line">"Imposter syndrome hit hard when she got the big client."</p></div></div><div class="door-label"><div class="door-name">Challenges</div><div class="door-count">5 memories</div></div></div>
-      <div class="room-door" data-route="/wing/__SLUG__/room/wins"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div><div class="door-peek"><p class="peek-line">"12 signups in one week. She cried."</p></div></div><div class="door-label"><div class="door-name">Wins</div><div class="door-count">4 memories</div></div></div>
-      <div class="room-door" data-route="/wing/__SLUG__/room/behavioral"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div><div class="door-peek"><p class="peek-line">"Voice tremor spikes when discussing revenue."</p></div></div><div class="door-label"><div class="door-name">Behavioral</div><div class="door-count">3 memories</div></div></div>
-      <div class="room-door diary-door" data-route="/wing/__SLUG__/diary"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div><div class="door-peek"><p class="peek-line">"I learned to ask the self-worth question before the pricing question."</p></div></div><div class="door-label"><div class="door-name">Avatar Diary</div><div class="door-count">2 entries</div></div></div>
+      <div class="room-door" data-route="/wing/__SLUG__/room/business" data-room="business"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div></div><div class="door-label"><div class="door-name">Business</div><div class="door-count">— memories</div></div></div>
+      <div class="room-door" data-route="/wing/__SLUG__/room/personal" data-room="personal"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div></div><div class="door-label"><div class="door-name">Personal</div><div class="door-count">— memories</div></div></div>
+      <div class="room-door" data-route="/wing/__SLUG__/room/growth" data-room="growth"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div></div><div class="door-label"><div class="door-name">Growth</div><div class="door-count">— memories</div></div></div>
+      <div class="room-door" data-route="/wing/__SLUG__/room/challenges" data-room="challenges"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div></div><div class="door-label"><div class="door-name">Challenges</div><div class="door-count">— memories</div></div></div>
+      <div class="room-door" data-route="/wing/__SLUG__/room/wins" data-room="wins"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div></div><div class="door-label"><div class="door-name">Wins</div><div class="door-count">— memories</div></div></div>
+      <div class="room-door" data-route="/wing/__SLUG__/room/behavioral" data-room="behavioral"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div></div><div class="door-label"><div class="door-name">Behavioral</div><div class="door-count">— memories</div></div></div>
+      <div class="room-door diary-door" data-route="/wing/__SLUG__/diary"><div class="door-frame"><div class="door-interior"></div><div class="door-handle"></div><div class="door-glow"></div></div><div class="door-label"><div class="door-name">Avatar Diary</div><div class="door-count wing-diary-count-inline">— entries</div></div></div>
     </div>
   </section>
   <section class="diary-section">
     <div class="diary-divider"></div>
     <p class="diary-label">__WING_FIRST__'s latest reflection</p>
-    <p class="diary-quote">"When someone switches topics fast, they are avoiding something. I now skip the surface and go straight to what they are protecting."</p>
-    <p class="diary-date">April 13, 2026</p>
+    <p class="diary-quote wing-latest-entry">…</p>
+    <p class="diary-date wing-latest-date"></p>
     <a class="diary-link" href="/wing/__SLUG__/diary">Read full diary</a>
   </section>
 </div>`;
 
-const PROFILES: Record<string, { name: string; role: string; wing: string }> = {
-  "trace-flores": { name: "Trace Flores", role: "Business Strategist & Pattern Architect", wing: "Wing I" },
-  "juan-schubert": { name: "Juan Schubert", role: "System Architect & Digital Twin", wing: "Wing II" },
-  "adri-kastel": { name: "Adri Kastel", role: "Growth Expert & Scaling Mentor", wing: "Wing III" },
-  "prof-brian-cox": { name: "Prof. Brian Cox", role: "Science Communicator & Educator", wing: "Wing IV" },
-  "clara-fontaine": { name: "Clara Fontaine", role: "Executive Communication Coach", wing: "Wing V" },
-  "elena-navarro": { name: "Elena Navarro", role: "Sales Strategist & Business Growth Expert", wing: "Wing VI" },
-};
-
-function wingCount(status: any, slug: string) {
-  // Only the hyphenated slug is legitimate. wing_* duplicates are ignored.
-  return Number(status?.wings?.[slug] ?? 0);
-}
-
-function roomCount(status: any, room: string) {
-  return Number(status?.rooms?.[room] ?? 0);
-}
-
 export default function WingPage() {
   const ref = useRef<HTMLDivElement>(null);
   const { slug = "trace-flores" } = useParams();
-  const profile = PROFILES[slug] ?? PROFILES["trace-flores"];
+  const profile = findAvatar(slug);
   const html = useMemo(
     () =>
       BASE_HTML.replaceAll("__SLUG__", slug)
@@ -87,23 +70,50 @@ export default function WingPage() {
       return { node, handler };
     });
 
-    fetchPalaceStatus().then((s) => {
-      const el = root.querySelector(".wing-memory-count");
-      if (el) el.textContent = String(wingCount(s, slug));
-      // Populate each door's memory count from /status.rooms (global counts —
-      // MemPalace does not expose per-wing per-room counts yet).
-      root.querySelectorAll<HTMLElement>(".room-door[data-route]").forEach((door) => {
-        const route = door.dataset.route || "";
-        const m = route.match(/\/room\/([^/]+)/);
-        const roomSlug = m?.[1];
-        const label = door.querySelector(".door-count");
-        if (!label) return;
-        if (roomSlug) {
-          const n = roomCount(s, roomSlug);
-          label.textContent = `${n} ${n === 1 ? "memory" : "memories"}`;
-        }
+    (async () => {
+      const [memories, owners, diary] = await Promise.all([
+        fetchMemories().catch(() => []),
+        fetchOwners().catch(() => []),
+        readDiary(slug, 1).catch(() => ({ entries: [], total: 0 })),
+      ]);
+
+      const avatarMems = memoriesForAvatar(slug, Array.isArray(memories) ? memories : [], Array.isArray(owners) ? owners : []);
+
+      // Header stats
+      const memEl = root.querySelector(".wing-memory-count");
+      if (memEl) memEl.textContent = String(avatarMems.length);
+
+      // Skills = unique topics referenced in this avatar's memories.
+      const topicSet = new Set<string>();
+      avatarMems.forEach((m: any) => {
+        const t = m.topics;
+        (Array.isArray(t) ? t : []).forEach((x: any) => topicSet.add(String(x).toLowerCase()));
       });
-    }).catch((err) => { console.error("Wing /status failed:", err); });
+      const skillEl = root.querySelector(".wing-skill-count");
+      if (skillEl) skillEl.textContent = String(topicSet.size);
+
+      const diaryTotal = Number(diary?.total ?? diary?.entries?.length ?? 0);
+      root.querySelectorAll(".wing-diary-count, .wing-diary-count-inline").forEach((el) => {
+        el.textContent = `${diaryTotal} ${diaryTotal === 1 ? "entry" : "entries"}`;
+      });
+      const latest = diary?.entries?.[0];
+      if (latest) {
+        const q = root.querySelector(".wing-latest-entry");
+        const d = root.querySelector(".wing-latest-date");
+        if (q) q.textContent = `“${String(latest.content || "").slice(0, 160)}”`;
+        if (d) d.textContent = String(latest.date || "");
+      }
+
+      // Per-room door counts: filter the avatar's memories whose topics match
+      // the room slug. Only rooms with zero matches fall through to 0 — in
+      // that case the Room page will show its empty state.
+      root.querySelectorAll<HTMLElement>(".room-door[data-room]").forEach((door) => {
+        const roomSlug = door.dataset.room || "";
+        const n = avatarMems.filter((m) => memoryMatchesRoom(roomSlug, m)).length;
+        const label = door.querySelector(".door-count");
+        if (label) label.textContent = `${n} ${n === 1 ? "memory" : "memories"}`;
+      });
+    })().catch((err) => console.error("Wing fetch failed:", err));
 
     return () => {
       document.body.classList.remove("wing-page");

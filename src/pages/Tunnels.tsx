@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { fetchPalaceStatus, searchPalace, readDiary, fetchContacts, fetchMemories, fetchConversationMemory } from "@/lib/api";
-import { findAvatar } from "@/lib/avatars";
+import { fetchMemories, fetchOwners } from "@/lib/api";
+import { AVATARS, findAvatar, memoriesForAvatar } from "@/lib/avatars";
 
 const HTML = `<nav class="breadcrumb">
   <a href="/tunnels">Tunnels</a>
@@ -151,69 +151,39 @@ export default function TunnelsPage(){
   useEffect(()=>{
     const root=ref.current; if(!root) return;
     (async()=>{
-      let status: any = null;
-      try { status = await fetchPalaceStatus(); } catch (err) { console.error("Tunnels /status failed:", err); }
+      const [memories, owners] = await Promise.all([
+        fetchMemories().catch(() => []),
+        fetchOwners().catch(() => []),
+      ]);
+      const mems = Array.isArray(memories) ? memories : [];
+      const ows = Array.isArray(owners) ? owners : [];
 
-      // Populate each wing node with its actual memory count from /status.wings.
-      // Only the hyphenated slug is legitimate — wing_* keys are legacy
-      // duplicates and must be ignored.
-      const wings = (status?.wings || {}) as Record<string, number>;
-      const countFor = (wingSlug: string) => Number(wings?.[wingSlug] ?? 0);
+      // Per-avatar counts come from Supabase wa_memories — MemPalace only has
+      // seed data. Also compute the max so node radii scale proportionally.
+      const perAvatar = new Map<string, number>();
+      AVATARS.forEach((a) => perAvatar.set(a.slug, memoriesForAvatar(a.slug, mems, ows).length));
+      const maxCount = Math.max(1, ...Array.from(perAvatar.values()));
+
       root.querySelectorAll<SVGGElement>('.wing-node[data-slug]').forEach((node) => {
         const wingSlug = node.dataset.slug || "";
-        const count = countFor(wingSlug);
+        const count = perAvatar.get(wingSlug) ?? 0;
         const sublabel = node.querySelector('.node-sublabel');
         if (sublabel) sublabel.textContent = `${count} memor${count === 1 ? "y" : "ies"}`;
-        // Emphasise the currently selected avatar so it stands out in the graph.
+
         const isActive = wingSlug === slug;
         node.classList.toggle("wing-node-active", isActive);
         const circle = node.querySelector('.node-circle') as SVGCircleElement | null;
         if (circle) {
-          circle.setAttribute("r", isActive ? "40" : "30");
-          circle.setAttribute("fill-opacity", isActive ? "0.14" : "0.05");
-          circle.setAttribute("stroke-opacity", isActive ? "0.55" : "0.25");
+          // Radius scales 22–44 proportional to this avatar's share of max.
+          const share = count / maxCount;
+          const r = Math.max(22, Math.min(44, 22 + share * 22));
+          circle.setAttribute("r", String(isActive ? Math.max(r, 36) : r));
+          circle.setAttribute("fill-opacity", String(isActive ? 0.14 : 0.04 + share * 0.06));
+          circle.setAttribute("stroke-opacity", String(isActive ? 0.55 : 0.2 + share * 0.2));
           circle.setAttribute("stroke-width", isActive ? "1.2" : "0.8");
         }
       });
-
-      // Diary preview for this avatar (if the layout exposes those counters).
-      try {
-        const d = await readDiary(slug, 10);
-        const n = root.querySelector('.diary-live-count');
-        if (n) n.textContent = String(Array.isArray(d?.entries) ? d.entries.length : 0);
-      } catch (err) {
-        console.error("Tunnels /diary/read failed:", err);
-      }
-
-      // Optional room-level semantic highlights for this avatar.
-      try {
-        const room = (params.room as string) || 'business';
-        const res = await searchPalace(profile.name, slug, room);
-        const list = root.querySelector('.room-live-list');
-        if (list && Array.isArray(res?.results)) {
-          list.innerHTML = '';
-          res.results.slice(0, 8).forEach((r: any) => {
-            const el = document.createElement('div');
-            el.className = 'drawer-item';
-            el.innerHTML = `<div class="drawer-title">${String(r.title || r.summary || 'Memory')}</div><div class="drawer-summary">${String(r.summary || r.content || '')}</div>`;
-            list.appendChild(el);
-          });
-        }
-      } catch (err) {
-        console.error("Tunnels /search failed:", err);
-      }
-
-      // Supabase globals for the small stats bar if present.
-      try {
-        const [c, m, v] = await Promise.all([fetchContacts(), fetchMemories(), fetchConversationMemory()]);
-        const c1 = root.querySelector('.contacts-live-count');
-        const c2 = root.querySelector('.sessions-live-count');
-        if (c1) c1.textContent = String(Array.isArray(c) ? c.length : 0);
-        if (c2) c2.textContent = String((Array.isArray(m) ? m.length : 0) + (Array.isArray(v) ? v.length : 0));
-      } catch (err) {
-        console.error("Tunnels Supabase fetch failed:", err);
-      }
-    })();
-  },[slug, profile.name, params.room]);
+    })().catch((err) => console.error("Tunnels fetch failed:", err));
+  },[slug]);
   return <div ref={ref} dangerouslySetInnerHTML={{__html:html}} />;
 }

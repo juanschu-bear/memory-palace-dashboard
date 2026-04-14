@@ -1,8 +1,6 @@
 import { useEffect, useRef } from "react";
-import { fetchPalaceStatus, readDiary } from "@/lib/api";
-
-const AVATAR_SLUGS = ["trace-flores","juan-schubert","adri-kastel","prof-brian-cox","clara-fontaine","elena-navarro"];
-const STANDARD_ROOMS = ["business","personal","growth","challenges","wins","behavioral","avatar-diary"];
+import { fetchMemories, fetchOwners, readDiary } from "@/lib/api";
+import { AVATARS, STANDARD_ROOMS, memoriesForAvatar } from "@/lib/avatars";
 
 const HTML = `<!-- Global Navigation -->
 
@@ -167,40 +165,37 @@ export default function EntrancePage(){
     const root = ref.current;
     if (!root) return;
     (async () => {
-      try {
-        const s = await fetchPalaceStatus();
-        const vals = root.querySelectorAll('.stats-bar .val');
-        const diaryTotals = await Promise.all(
-          AVATAR_SLUGS.map(async (slug) => {
-            try {
-              const d = await readDiary(slug, 100);
-              return Number(d?.total ?? d?.entries?.length ?? 0);
-            } catch {
-              return 0;
-            }
-          }),
-        );
-        const diaryCount = diaryTotals.reduce((a, b) => a + b, 0);
-        // Wings and Rooms are a fixed structural count, not derived from /status.
-        if (vals[0]) vals[0].textContent = String(AVATAR_SLUGS.length);
-        if (vals[1]) vals[1].textContent = String(s?.total_drawers ?? 0);
-        if (vals[2]) vals[2].textContent = String(diaryCount);
-        if (vals[3]) vals[3].textContent = String(STANDARD_ROOMS.length);
+      // Supabase is the source of truth for memories. MemPalace /status has
+      // only 49 seed drawers; the real dataset is ~196 wa_memories rows.
+      const [memories, owners] = await Promise.all([fetchMemories(), fetchOwners()]);
 
-        const corridors = Array.from(root.querySelectorAll('.wing-corridor'));
-        corridors.forEach((c) => {
-          const href = (c as HTMLAnchorElement).getAttribute('href') || '';
-          const slug = href.split('/wing/')[1] || '';
-          // Only the hyphenated slug is legitimate; wing_* keys are legacy
-          // duplicates that we explicitly ignore.
-          const count = Number(s?.wings?.[slug] ?? 0);
-          const label = c.querySelector('.corridor-count');
-          if (label) label.textContent = `${count} Memor${count === 1 ? 'y' : 'ies'}`;
-        });
-      } catch (err) {
-        console.error('Entrance status fetch failed:', err);
-      }
-    })();
+      const diaryTotals = await Promise.all(
+        AVATARS.map(async (a) => {
+          try {
+            const d = await readDiary(a.slug, 100);
+            return Number(d?.total ?? d?.entries?.length ?? 0);
+          } catch {
+            return 0;
+          }
+        }),
+      );
+      const diaryCount = diaryTotals.reduce((x, y) => x + y, 0);
+
+      const vals = root.querySelectorAll('.stats-bar .val');
+      if (vals[0]) vals[0].textContent = String(AVATARS.length);
+      if (vals[1]) vals[1].textContent = String(Array.isArray(memories) ? memories.length : 0);
+      if (vals[2]) vals[2].textContent = String(diaryCount);
+      if (vals[3]) vals[3].textContent = String(STANDARD_ROOMS.length);
+
+      const corridors = Array.from(root.querySelectorAll('.wing-corridor'));
+      corridors.forEach((c) => {
+        const href = (c as HTMLAnchorElement).getAttribute('href') || '';
+        const slug = href.split('/wing/')[1] || '';
+        const count = memoriesForAvatar(slug, Array.isArray(memories) ? memories : [], Array.isArray(owners) ? owners : []).length;
+        const label = c.querySelector('.corridor-count');
+        if (label) label.textContent = `${count} Memor${count === 1 ? 'y' : 'ies'}`;
+      });
+    })().catch((err) => console.error('Entrance fetch failed:', err));
   }, []);
 
   return <div ref={ref} dangerouslySetInnerHTML={{ __html: HTML }} />;

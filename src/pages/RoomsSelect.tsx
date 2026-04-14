@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
 import AvatarSelector from "@/components/AvatarSelector";
-import { fetchPalaceStatus } from "@/lib/api";
-
-function wingCount(status: any, slug: string) {
-  const key = slug.replace(/-/g, "_");
-  return Number(status?.wings?.[slug] ?? status?.wings?.[key] ?? status?.wings?.[`wing_${key}`] ?? 0);
-}
+import { fetchMemories, fetchOwners } from "@/lib/api";
+import { memoriesForAvatar } from "@/lib/avatars";
 
 export default function RoomsSelectPage() {
-  const [status, setStatus] = useState<any>(null);
+  const [memories, setMemories] = useState<any[]>([]);
+  const [owners, setOwners] = useState<any[]>([]);
   useEffect(() => {
-    fetchPalaceStatus().then(setStatus).catch(() => {});
+    (async () => {
+      const [m, o] = await Promise.all([fetchMemories(), fetchOwners()]);
+      setMemories(Array.isArray(m) ? m : []);
+      setOwners(Array.isArray(o) ? o : []);
+    })().catch(() => {});
   }, []);
 
   return (
@@ -20,8 +21,8 @@ export default function RoomsSelectPage() {
       subtitle="Each avatar organises what they have learned into thematic rooms."
       hrefFor={(a) => `/wing/${a.slug}`}
       countFor={(a) => {
-        const memories = wingCount(status, a.slug);
-        return `7 Rooms · ${memories} Memories`;
+        const n = memoriesForAvatar(a.slug, memories, owners).length;
+        return `7 Rooms · ${n} ${n === 1 ? "Memory" : "Memories"}`;
       }}
     />
   );

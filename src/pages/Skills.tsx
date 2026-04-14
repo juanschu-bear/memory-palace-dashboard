@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { readDiary } from "@/lib/api";
-import { findAvatar } from "@/lib/avatars";
+import { fetchMemories, fetchOwners } from "@/lib/api";
+import { findAvatar, memoriesForAvatar, memoryTopics } from "@/lib/avatars";
 
 const HTML = `<nav class="breadcrumb">
   <a href="/skills">Skills</a>
@@ -180,7 +180,7 @@ function escapeHtml(s: string){
 }
 
 function humanize(s: string){
-  return s.replace("skill/", "").replaceAll("-", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  return s.replace(/^skill\//, "").replaceAll("-", " ").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export default function SkillsPage(){
@@ -206,24 +206,26 @@ export default function SkillsPage(){
     if (cards) cards.innerHTML = `<p class="skills-detail-title">Skill inventory</p><div class="skills-loading">Gathering reflections…</div>`;
 
     (async()=>{
-      let d: any = null;
+      let memories: any[] = [], owners: any[] = [];
       try {
-        d = await readDiary(slug, 50);
+        [memories, owners] = await Promise.all([fetchMemories(), fetchOwners()]);
       } catch (err) {
-        console.error("Skills /diary/read failed:", err);
+        console.error("Skills Supabase fetch failed:", err);
       }
-      const entries: any[] = Array.isArray(d?.entries) ? d.entries : [];
-      // Count skill tags and remember which entries reference each skill.
+      // Skills = unique topics across this avatar's wa_memories rows.
+      const avatarMems = memoriesForAvatar(slug, Array.isArray(memories) ? memories : [], Array.isArray(owners) ? owners : []);
       const stats = new Map<string, { count: number; dates: string[]; entries: any[] }>();
-      entries.forEach((e) => {
-        const text = JSON.stringify(e).toLowerCase();
-        const matches = text.match(/skill\/[a-z0-9-]+/g) || [];
-        const unique = new Set(matches);
-        unique.forEach((tag) => {
+      avatarMems.forEach((m: any) => {
+        const topics = memoryTopics(m);
+        const seen = new Set<string>();
+        topics.forEach((raw) => {
+          const tag = String(raw).trim().toLowerCase();
+          if (!tag || seen.has(tag)) return;
+          seen.add(tag);
           const prev = stats.get(tag) || { count: 0, dates: [], entries: [] };
           prev.count += 1;
-          if (e.date) prev.dates.push(String(e.date));
-          prev.entries.push(e);
+          if (m.created_at) prev.dates.push(String(m.created_at));
+          prev.entries.push(m);
           stats.set(tag, prev);
         });
       });
@@ -231,34 +233,39 @@ export default function SkillsPage(){
 
       if (cards) {
         if (ranked.length === 0) {
-          cards.innerHTML = `<p class="skills-detail-title">Skill inventory</p><div class="skills-empty"><div class="skills-empty-title">No skills detected yet</div><div class="skills-empty-sub">Skills emerge from diary reflections. Tag entries with <code>skill/…</code> and they'll show up here.</div></div>`;
+          cards.innerHTML = `<p class="skills-detail-title">Skill inventory</p><div class="skills-empty"><div class="skills-empty-title">No skills detected yet</div><div class="skills-empty-sub">Skills emerge from tagged memories. Once ${escapeHtml(profile.name)} stores memories with topics, they'll appear here.</div></div>`;
         } else {
           cards.innerHTML = `<p class="skills-detail-title">Skill inventory</p>`;
-          ranked.forEach(([tag, info]) => {
-            const intensity = info.count > 2 ? "strong" : info.count > 1 ? "moderate" : "emerging";
+          // Intensity is relative to this avatar's most-used topic so the
+          // distribution looks sensible regardless of absolute count size.
+          const top = ranked[0]?.[1].count || 1;
+          ranked.slice(0, 12).forEach(([tag, info]) => {
+            const share = info.count / top;
+            const intensity = share > 0.66 ? "strong" : share > 0.33 ? "moderate" : "emerging";
             const firstDate = info.dates.slice().sort()[0] || "";
+            const preview = String(info.entries[0]?.summary || info.entries[0]?.raw_text || "").slice(0, 180);
             const wrap = document.createElement("div");
             wrap.className = "skill-detail-card";
             wrap.tabIndex = 0;
             wrap.innerHTML = `<div class="skill-intensity intensity-${intensity}"></div>
 <div class="skill-detail-info">
   <div class="skill-detail-name">${escapeHtml(humanize(tag))}</div>
-  <div class="skill-detail-desc">${escapeHtml(info.entries[0]?.content?.slice(0, 180) || "")}</div>
+  <div class="skill-detail-desc">${escapeHtml(preview)}</div>
   <div class="skill-detail-avatar">${escapeHtml(profile.name)}</div>
 </div>
 <div class="skill-detail-right">
   <div class="skill-detail-count">${info.count}</div>
-  <div class="skill-detail-label">${info.count === 1 ? "Reference" : "References"}</div>
-  <div class="skill-detail-first">${escapeHtml(firstDate ? `Since ${firstDate}` : "Emerging")}</div>
+  <div class="skill-detail-label">${info.count === 1 ? "Memory" : "Memories"}</div>
+  <div class="skill-detail-first">${escapeHtml(firstDate ? `Since ${firstDate.slice(0, 10)}` : "Emerging")}</div>
 </div>`;
             const panel = document.createElement("div");
             panel.className = "skill-detail-panel";
             panel.innerHTML = info.entries
               .slice(0, 5)
-              .map(
-                (e) =>
-                  `<div class="skill-ref"><div class="skill-ref-date">${escapeHtml(String(e.date || ""))}</div><div class="skill-ref-body">${escapeHtml(String(e.content || "").slice(0, 260))}</div></div>`,
-              )
+              .map((m) => {
+                const body = String(m.summary || m.raw_text || "").slice(0, 260);
+                return `<div class="skill-ref"><div class="skill-ref-date">${escapeHtml(String(m.created_at || "").slice(0, 10))}</div><div class="skill-ref-body">${escapeHtml(body)}</div></div>`;
+              })
               .join("");
             wrap.appendChild(panel);
             wrap.addEventListener("click", () => wrap.classList.toggle("skill-detail-card-open"));

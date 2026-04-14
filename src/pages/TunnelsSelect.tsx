@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
 import AvatarSelector from "@/components/AvatarSelector";
-import { fetchPalaceStatus } from "@/lib/api";
-
-function wingCount(status: any, slug: string) {
-  const key = slug.replace(/-/g, "_");
-  return Number(status?.wings?.[slug] ?? status?.wings?.[key] ?? status?.wings?.[`wing_${key}`] ?? 0);
-}
+import { fetchMemories, fetchOwners } from "@/lib/api";
+import { memoriesForAvatar } from "@/lib/avatars";
 
 export default function TunnelsSelectPage() {
-  const [status, setStatus] = useState<any>(null);
+  const [memories, setMemories] = useState<any[]>([]);
+  const [owners, setOwners] = useState<any[]>([]);
   useEffect(() => {
-    fetchPalaceStatus().then(setStatus).catch(() => {});
+    (async () => {
+      const [m, o] = await Promise.all([fetchMemories(), fetchOwners()]);
+      setMemories(Array.isArray(m) ? m : []);
+      setOwners(Array.isArray(o) ? o : []);
+    })().catch(() => {});
   }, []);
 
   return (
@@ -20,8 +21,8 @@ export default function TunnelsSelectPage() {
       subtitle="When two avatars encounter the same theme, a tunnel forms between them. Choose an avatar to see theirs."
       hrefFor={(a) => `/tunnels/${a.slug}`}
       countFor={(a) => {
-        const memories = wingCount(status, a.slug);
-        return `${memories} Memor${memories === 1 ? "y" : "ies"}`;
+        const n = memoriesForAvatar(a.slug, memories, owners).length;
+        return `${n} Memor${n === 1 ? "y" : "ies"}`;
       }}
     />
   );
