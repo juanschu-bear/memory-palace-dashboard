@@ -79,7 +79,9 @@ async function supabase(table: string, params: string) {
 }
 
 export async function fetchContacts() {
-  try { return await supabase("wa_contacts", "select=*&order=updated_at.desc&limit=100"); } catch { return []; }
+  // wa_contacts has no updated_at column — last_active_at is the canonical
+  // "when did we last see them" timestamp. Ordering by updated_at returns 400.
+  try { return await supabase("wa_contacts", "select=*&order=last_active_at.desc&limit=200"); } catch { return []; }
 }
 export async function fetchOwners() {
   try { return await supabase("wa_owners", "select=*&order=updated_at.desc&limit=200"); } catch { return []; }
