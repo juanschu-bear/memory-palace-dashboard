@@ -1,40 +1,19 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { readDiary } from "@/lib/api";
+import { findAvatar } from "@/lib/avatars";
 
-const HTML = `<!-- Global Navigation -->
-<nav style="position:fixed;top:0;left:0;width:100%;z-index:50;display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:1rem 2rem;background:rgba(10,10,12,0.75);backdrop-filter:blur(12px);border-bottom:1px solid rgba(232,160,80,0.06)">
-  <a href="/" style="font-family:'Cormorant Garamond',serif;font-size:0.85rem;letter-spacing:0.12em;color:rgba(232,160,80,0.6);text-decoration:none;margin-right:1.5rem;padding-right:1.5rem;border-right:1px solid rgba(232,160,80,0.1)">Memory Palace</a>
-  <a href="/" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Entrance</a>
-  <a href="/wing/trace-flores" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Wings</a>
-  <a href="/wing/trace-flores/room/business" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Rooms</a>
-  <a href="/wing/trace-flores/diary" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Diary</a>
-  <a href="/tunnels" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Tunnels</a>
-  <a href="/contacts" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Contacts</a>
-  <a href="/skills" style="font-family:'DM Sans',sans-serif;font-size:0.7rem;letter-spacing:0.18em;text-transform:uppercase;color:rgba(232,224,208,0.35);text-decoration:none;padding:0.5rem 1.2rem;border:1px solid transparent;border-radius:3px;transition:all 0.3s ease">Skills</a>
-</nav>
-
-
-<nav class="breadcrumb">
-  <a>Palace</a>
+const HTML = `<nav class="breadcrumb">
+  <a href="/skills">Skills</a>
   <span class="sep">/</span>
-  <span class="current">Skills</span>
+  <span class="current skill-crumb-name">Skills</span>
 </nav>
 
 <section class="page-header">
-  <h1>Skills</h1>
-  <p class="subtitle">What each avatar has learned through conversation. Skills emerge from diary reflections and grow stronger with repetition.</p>
+  <p class="skill-eyebrow">__WING_LABEL__</p>
+  <h1 class="skill-h1">__WING_NAME__'s Skills</h1>
+  <p class="subtitle">What __WING_FIRST__ has learned through conversation. Skills emerge from diary reflections and grow stronger with repetition.</p>
 </section>
-
-<!-- Avatar filter -->
-<div class="avatar-tabs">
-  <button class="avatar-tab active">All avatars</button>
-  <button class="avatar-tab">Trace Flores</button>
-  <button class="avatar-tab">Juan Schubert</button>
-  <button class="avatar-tab">Adri Kastel</button>
-  <button class="avatar-tab">Prof. Brian Cox</button>
-  <button class="avatar-tab">Clara Fontaine</button>
-</div>
 
 <!-- Constellation -->
 <div class="constellation-section">
@@ -199,11 +178,22 @@ for (let i = 0; i < 60; i++) {
 export default function SkillsPage(){
   const ref = useRef<HTMLDivElement>(null);
   const params = useParams();
+  const slug = (params.slug as string) || "trace-flores";
+  const profile = findAvatar(slug);
+  const html = useMemo(
+    () =>
+      HTML
+        .replaceAll("__WING_NAME__", profile.name)
+        .replaceAll("__WING_FIRST__", profile.name.split(" ")[0])
+        .replaceAll("__WING_LABEL__", profile.wing),
+    [profile.name, profile.wing],
+  );
   useEffect(()=>{
     const root=ref.current; if(!root) return;
+    const crumb=root.querySelector('.skill-crumb-name');
+    if(crumb) crumb.textContent=`${profile.name}'s Skills`;
     (async()=>{
       try{
-        const slug=(params.slug as string)||'trace-flores';
         const d=await readDiary(slug,50);
         const counts: Record<string, number> = {};
         (d?.entries||[]).forEach((e:any)=>{
@@ -221,6 +211,6 @@ export default function SkillsPage(){
         }
       }catch{}
     })();
-  },[params.slug,params.room]);
-  return <div ref={ref} dangerouslySetInnerHTML={{__html:HTML}} />;
+  },[slug, profile.name]);
+  return <div ref={ref} dangerouslySetInnerHTML={{__html:html}} />;
 }
