@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=DM+Sans:wght@300;400;500&display=swap");
 
 /* 01-entrance.html */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -222,14 +222,23 @@ body {
   transform: scale(1.02);
 }
 
-/* Stats bar */
+/* Stats bar — a centred pill at the bottom that doesn't block the palace path */
 .stats-bar {
-  position: absolute; bottom: 0; width: 100%;
-  display: flex; justify-content: center; gap: 4rem;
-  padding: 0.4rem 2rem;
-  background: rgba(10,10,12,0.8);
+  position: absolute;
+  bottom: 1.2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  max-width: min(560px, 52vw);
+  display: flex;
+  justify-content: center;
+  gap: 3rem;
+  padding: 0.5rem 2rem;
+  background: rgba(10,10,12,0.78);
   backdrop-filter: blur(12px);
-  border-top: 1px solid rgba(232,160,80,0.08);
+  border: 1px solid rgba(232,160,80,0.12);
+  border-radius: 4px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.35);
   z-index: 20;
   animation: breathe-in 2s ease-out 1.2s both;
 }

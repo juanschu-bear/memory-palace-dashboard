@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { fetchContacts, fetchOwners, fetchConversations, fetchMemories } from "@/lib/api";
+import { fetchContacts, fetchOwners, fetchConversations, fetchConversationMemory, fetchMemories } from "@/lib/api";
+import { memoryTopics } from "@/lib/avatars";
 
 const HTML = `<nav class="breadcrumb">
   <a>Palace</a>
@@ -21,77 +22,7 @@ const HTML = `<nav class="breadcrumb">
     <input type="text" class="search-input" placeholder="Search contacts...">
   </div>
 
-  <section class="contacts-list">
-
-    <div class="contact-card">
-      <div class="contact-initial">M</div>
-      <div class="contact-info">
-        <div class="contact-name">Maria</div>
-        <div class="contact-detail">Online course creator transitioning from in-person coaching. Core themes: pricing, self-worth, product launch.</div>
-        <div class="contact-avatars">
-          <span class="avatar-chip">Trace Flores</span>
-        </div>
-      </div>
-      <div class="contact-stats">
-        <div class="contact-stat-num">8</div>
-        <div class="contact-stat-label">Sessions</div>
-        <div class="contact-last-seen">Last seen: Apr 12</div>
-      </div>
-    </div>
-
-    <div class="contact-card">
-      <div class="contact-initial">P</div>
-      <div class="contact-info">
-        <div class="contact-name">Pedro</div>
-        <div class="contact-detail">Freelance consultant stuck on pricing. Recurring theme: fear of losing existing clients.</div>
-        <div class="contact-avatars">
-          <span class="avatar-chip">Trace Flores</span>
-        </div>
-      </div>
-      <div class="contact-stats">
-        <div class="contact-stat-num">3</div>
-        <div class="contact-stat-label">Sessions</div>
-        <div class="contact-last-seen">Last seen: Apr 10</div>
-      </div>
-    </div>
-
-    <div class="contact-card">
-      <div class="contact-initial">L</div>
-      <div class="contact-info">
-        <div class="contact-name">Lisa</div>
-        <div class="contact-detail">Early-stage founder navigating a business partnership. Core theme: imposter syndrome, delegation.</div>
-        <div class="contact-avatars">
-          <span class="avatar-chip">Trace Flores</span>
-          <span class="avatar-chip">Clara Fontaine</span>
-        </div>
-      </div>
-      <div class="contact-stats">
-        <div class="contact-stat-num">1</div>
-        <div class="contact-stat-label">Sessions</div>
-        <div class="contact-last-seen">Last seen: Apr 5</div>
-      </div>
-    </div>
-
-    <div class="contact-card">
-      <div class="contact-initial">J</div>
-      <div class="contact-info">
-        <div class="contact-name">Juan Schubert</div>
-        <div class="contact-detail">Founder of ONIOKO. Test sessions across multiple avatars. Strategy and product discussions.</div>
-        <div class="contact-avatars">
-          <span class="avatar-chip">Trace Flores</span>
-          <span class="avatar-chip">Adri Kastel</span>
-          <span class="avatar-chip">Prof. Brian Cox</span>
-          <span class="avatar-chip">Clara Fontaine</span>
-        </div>
-      </div>
-      <div class="contact-stats">
-        <div class="contact-stat-num">0</div>
-        <div class="contact-stat-label">Sessions</div>
-        <div class="contact-last-seen">Last seen: Apr 13</div>
-      </div>
-    </div>
-
-  </section>
+  <section class="contacts-list"></section>
 
 </div>`;
 
@@ -99,27 +30,43 @@ function escapeHtml(s: string){
   return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
-// wa_conversations.contact_id and wa_memories.contact_id are the only FKs
-// we can trust against the real schema — no wa_contact_id fallback.
-function matchesContact(id: string | undefined, record: any){
-  if (!id) return false;
-  return String(record?.contact_id ?? "") === String(id);
+// Collapse contact rows globally by display_name. Multiple owners talking to
+// the same person produce multiple wa_contacts rows — we want one card that
+// aggregates all of that person's conversations and memories.
+interface MergedContact {
+  id: string;
+  displayName: string;
+  contactIds: string[];
+  ownerIds: Set<string>;
+  lastActive: string;
+  detail: string;
 }
 
-// wa_contacts carries duplicates (same display_name + same owner_id exist
-// multiple times). Keep the freshest row per (owner_id, display_name).
-function dedupContacts(rows: any[]): any[] {
-  const byKey = new Map<string, any>();
-  for (const row of rows) {
-    const name = String(row.display_name || "").trim().toLowerCase();
-    const key = `${row.owner_id || ""}::${name || row.id}`;
-    const prev = byKey.get(key);
-    if (!prev) { byKey.set(key, row); continue; }
-    const a = String(prev.last_active_at || prev.joined_at || "");
-    const b = String(row.last_active_at || row.joined_at || "");
-    if (b > a) byKey.set(key, row);
-  }
-  return Array.from(byKey.values());
+function mergeContacts(rows: any[]): MergedContact[] {
+  const byName = new Map<string, MergedContact>();
+  rows.forEach((row) => {
+    const displayName = String(row.display_name || "").trim();
+    if (!displayName) return;
+    const key = displayName.toLowerCase();
+    const last = String(row.last_active_at || row.joined_at || "");
+    const prev = byName.get(key);
+    if (!prev) {
+      byName.set(key, {
+        id: key,
+        displayName,
+        contactIds: [String(row.id)],
+        ownerIds: new Set(row.owner_id ? [String(row.owner_id)] : []),
+        lastActive: last,
+        detail: row.email || row.phone_number || "",
+      });
+      return;
+    }
+    prev.contactIds.push(String(row.id));
+    if (row.owner_id) prev.ownerIds.add(String(row.owner_id));
+    if (last > prev.lastActive) prev.lastActive = last;
+    if (!prev.detail && (row.email || row.phone_number)) prev.detail = row.email || row.phone_number;
+  });
+  return Array.from(byName.values()).sort((a, b) => b.lastActive.localeCompare(a.lastActive));
 }
 
 export default function ContactsPage(){
@@ -128,15 +75,20 @@ export default function ContactsPage(){
     document.body.classList.add("light-contacts");
     const root=ref.current; if(!root) return;
     (async()=>{
-      let rawContacts: any[] = [], owners: any[] = [], conversations: any[] = [], memories: any[] = [];
+      let rawContacts: any[] = [], owners: any[] = [], conversations: any[] = [], convMemos: any[] = [], memories: any[] = [];
       try {
-        [rawContacts, owners, conversations, memories] = await Promise.all([
-          fetchContacts(), fetchOwners(), fetchConversations(), fetchMemories(),
+        [rawContacts, owners, conversations, convMemos, memories] = await Promise.all([
+          fetchContacts(), fetchOwners(), fetchConversations(), fetchConversationMemory(), fetchMemories(),
         ]);
       } catch (err) {
         console.error("Contacts fetch failed:", err);
       }
-      const contacts = dedupContacts(Array.isArray(rawContacts) ? rawContacts : []);
+      const contacts = mergeContacts(Array.isArray(rawContacts) ? rawContacts : []);
+      const convMemoByConvId = new Map<string, any>();
+      (convMemos || []).forEach((cm: any) => {
+        if (cm?.conversation_id) convMemoByConvId.set(String(cm.conversation_id), cm);
+      });
+
       const list = root.querySelector('.contacts-list');
       const cCount = root.querySelector('.contacts-live-count');
       const sCount = root.querySelector('.sessions-live-count');
@@ -148,33 +100,29 @@ export default function ContactsPage(){
         list.innerHTML = `<div class="contacts-empty">No contacts yet. Once users talk to your avatars, they'll appear here.</div>`;
         return;
       }
-      contacts.forEach((c: any) => {
-        const id = c.id;
+
+      contacts.forEach((c) => {
+        const ids = new Set(c.contactIds);
+        const inSet = (x: any) => ids.has(String(x?.contact_id ?? ""));
         const conv = conversations
-          .filter((x) => matchesContact(id, x))
+          .filter(inSet)
           .sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
         const mems = memories
-          .filter((m) => matchesContact(id, m))
+          .filter(inSet)
           .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
-        // Avatars the contact met: via conversations (preferred — confirmed contact)
-        // or via memories (contact was mentioned in that avatar's wing).
-        const ownerIds = new Set<string>();
-        conv.forEach((x) => { if (x.owner_id) ownerIds.add(String(x.owner_id)); });
-        mems.forEach((m) => { if (m.owner_id) ownerIds.add(String(m.owner_id)); });
-        if (c.owner_id) ownerIds.add(String(c.owner_id));
+        conv.forEach((x) => { if (x.owner_id) c.ownerIds.add(String(x.owner_id)); });
+        mems.forEach((m) => { if (m.owner_id) c.ownerIds.add(String(m.owner_id)); });
+
         const ownerNames = owners
-          .filter((o) => ownerIds.has(String(o.id)))
+          .filter((o) => c.ownerIds.has(String(o.id)))
           .map((o) => o.display_name)
           .filter(Boolean);
-        const name = c.display_name || "Unknown";
-        const initial = (name.charAt(0) || "?").toUpperCase();
-        const lastSeen = String(c.last_active_at || c.joined_at || "").slice(0, 10);
-        const detail = c.email || c.phone_number || "";
+        const initial = (c.displayName.charAt(0) || "?").toUpperCase();
         const node = document.createElement("div");
         node.className = "contact-card";
         node.innerHTML = `<div class="contact-initial">${escapeHtml(initial)}</div>
-<div class="contact-info"><div class="contact-name">${escapeHtml(name)}</div><div class="contact-detail">${escapeHtml(detail)}</div><div class="contact-avatars">${ownerNames.map((n: string) => `<span class="avatar-chip">${escapeHtml(n)}</span>`).join("")}</div></div>
-<div class="contact-stats"><div class="contact-stat-num">${conv.length}</div><div class="contact-stat-label">Sessions</div><div class="contact-last-seen">Last seen: ${escapeHtml(lastSeen)}</div></div>`;
+<div class="contact-info"><div class="contact-name">${escapeHtml(c.displayName)}</div><div class="contact-detail">${escapeHtml(c.detail)}</div><div class="contact-avatars">${ownerNames.map((n: string) => `<span class="avatar-chip">${escapeHtml(n)}</span>`).join("")}</div></div>
+<div class="contact-stats"><div class="contact-stat-num">${conv.length}</div><div class="contact-stat-label">Sessions</div><div class="contact-last-seen">Last seen: ${escapeHtml(c.lastActive.slice(0, 10))}</div></div>`;
         node.addEventListener("click", (ev) => {
           if ((ev.target as HTMLElement)?.closest(".contact-detail-panel")) return;
           const existing = node.querySelector(".contact-detail-panel") as HTMLElement | null;
@@ -182,30 +130,29 @@ export default function ContactsPage(){
           node.classList.add("contact-card-open");
           const panel = document.createElement("div");
           panel.className = "contact-detail-panel";
+
+          // Build conversation list backed by wa_conversation_memory.summary
+          // (the actual session recap text) instead of a generic label.
           const convHtml = conv.length
-            ? `<ul class="contact-conv-list">${conv
-                .slice(0, 20)
-                .map((x) => {
-                  const date = String(x.updated_at || x.created_at || "").slice(0, 10);
-                  const ownerName = owners.find((o) => String(o.id) === String(x.owner_id))?.display_name || "—";
-                  return `<li><span class="conv-date">${escapeHtml(date)}</span><span class="conv-summary">Conversation with ${escapeHtml(ownerName)}</span></li>`;
-                })
-                .join("")}</ul>`
+            ? `<ul class="contact-conv-list">${conv.slice(0, 20).map((x) => {
+                const date = String(x.updated_at || x.created_at || "").slice(0, 10);
+                const cm = convMemoByConvId.get(String(x.id));
+                const ownerName = owners.find((o) => String(o.id) === String(x.owner_id))?.display_name || "";
+                const summary = cm?.summary || (ownerName ? `Session with ${ownerName}` : "Conversation");
+                return `<li><span class="conv-date">${escapeHtml(date)}</span><span class="conv-summary">${escapeHtml(String(summary))}</span></li>`;
+              }).join("")}</ul>`
             : `<p class="contact-panel-empty">No conversations logged.</p>`;
+
           const memHtml = mems.length
-            ? `<div class="contact-mem-grid">${mems
-                .slice(0, 12)
-                .map((m) => {
-                  // wa_memories real columns: summary, raw_text, topics (array),
-                  // entities, importance, persona_name, created_at.
-                  const topics = Array.isArray(m.topics) ? m.topics : [];
-                  const title = topics[0] || m.persona_name || "Memory";
-                  const body = m.summary || m.raw_text || "";
-                  const date = String(m.created_at || "").slice(0, 10);
-                  return `<div class="contact-mem-card"><div class="mem-meta">${escapeHtml(date)}</div><div class="mem-title">${escapeHtml(String(title))}</div><div class="mem-body">${escapeHtml(String(body))}</div></div>`;
-                })
-                .join("")}</div>`
+            ? `<div class="contact-mem-grid">${mems.slice(0, 12).map((m) => {
+                const topics = memoryTopics(m);
+                const title = topics[0] || m.persona_name || "Memory";
+                const body = m.summary || m.raw_text || "";
+                const date = String(m.created_at || "").slice(0, 10);
+                return `<div class="contact-mem-card"><div class="mem-meta">${escapeHtml(date)}</div><div class="mem-title">${escapeHtml(String(title))}</div><div class="mem-body">${escapeHtml(String(body))}</div></div>`;
+              }).join("")}</div>`
             : `<p class="contact-panel-empty">No memories stored for this contact.</p>`;
+
           panel.innerHTML = `
             <div class="contact-panel-section"><h3>Conversations <span class="count">${conv.length}</span></h3>${convHtml}</div>
             <div class="contact-panel-section"><h3>Memories <span class="count">${mems.length}</span></h3>${memHtml}</div>`;
