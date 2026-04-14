@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { searchPalace } from "@/lib/api";
+import { findAvatar } from "@/lib/avatars";
 
 const HTML = `<!-- Room atmosphere -->
 <div class="room-bg"></div>
@@ -14,22 +15,20 @@ const HTML = `<!-- Room atmosphere -->
 
   <!-- Breadcrumb -->
   <nav class="breadcrumb">
-    <a onclick="history.go(-2)">Palace</a>
+    <a href="/wings">Wings</a>
     <span class="sep">/</span>
-    <a onclick="history.back()">Trace Flores</a>
+    <a class="room-wing-link" href="/wing/__SLUG__">__WING_NAME__</a>
     <span class="sep">/</span>
-    <span class="current">Business</span>
+    <span class="current">__ROOM_LABEL__</span>
   </nav>
 
   <!-- Room header -->
   <section class="room-header">
-    <div class="room-context">Trace Flores &middot; Room</div>
-    <h1>Business</h1>
-    <p class="room-desc">Strategy, launches, pricing, revenue, scaling, market positioning, client acquisition, competitive landscape.</p>
+    <div class="room-context">__WING_NAME__ &middot; Room</div>
+    <h1>__ROOM_LABEL__</h1>
+    <p class="room-desc">Memories this avatar has tagged with <em>__ROOM_SLUG__</em>.</p>
     <div class="room-meta">
-      <div class="room-meta-item"><strong>23</strong> memories</div>
-      <div class="room-meta-item"><strong>4</strong> contacts</div>
-      <div class="room-meta-item"><strong>2</strong> tunnels</div>
+      <div class="room-meta-item"><strong class="room-mem-count">0</strong> memories</div>
     </div>
   </section>
 
@@ -187,34 +186,66 @@ for (let i = 0; i < 15; i++) {
 }
 </script>`;
 
+function escapeHtml(s: string){
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function labelize(s: string){
+  return s.split("-").map((p)=>p.charAt(0).toUpperCase()+p.slice(1)).join(" ");
+}
+
 export default function RoomPage(){
   const ref = useRef<HTMLDivElement>(null);
   const params = useParams();
+  const slug=(params.slug as string)||'trace-flores';
+  const room=(params.room as string)||'business';
+  const roomLabel=labelize(room);
+  const profile = findAvatar(slug);
+
+  const html = useMemo(
+    () => HTML
+      .replaceAll("__SLUG__", slug)
+      .replaceAll("__ROOM_SLUG__", room)
+      .replaceAll("__ROOM_LABEL__", roomLabel)
+      .replaceAll("__WING_NAME__", profile.name),
+    [slug, room, roomLabel, profile.name],
+  );
+
   useEffect(()=>{
     const root=ref.current; if(!root) return;
+    const section=root.querySelector('.drawers-section') as HTMLElement | null;
+    // Clear the hardcoded placeholder drawers immediately so stale data never shows.
+    if(section){ section.innerHTML='<div class="drawer-loading">Loading memories…</div>'; }
+
     (async()=>{
+      let res: any = null;
       try{
-        const slug=(params.slug as string)||'trace-flores';
-        const room=(params.room as string)||'business';
-        const res=await searchPalace(room,slug,room);
-        const section=root.querySelector('.drawers-section');
-        const title=root.querySelector('.room-header h1');
-        const crumb=root.querySelector('.breadcrumb .current');
-        if(title) title.textContent=room.charAt(0).toUpperCase()+room.slice(1);
-        if(crumb) crumb.textContent=room.charAt(0).toUpperCase()+room.slice(1);
-        if(section && Array.isArray(res?.results)){
-          section.innerHTML="";
-          res.results.slice(0,20).forEach((r:any)=>{
-            const text = String(r.text || r.summary || r.content || "");
-            const title = text.length > 80 ? `${text.slice(0,80)}...` : (text || "Memory");
-            const entry=document.createElement("div");
-            entry.className="drawer";
-            entry.innerHTML=`<div class="drawer-top"><div class="drawer-date">${r.date||r.source_file||""}</div><div class="drawer-content"><div class="drawer-title">${title}</div><div class="drawer-summary">${text}</div><div class="drawer-tags"><span class="drawer-tag">${r.wing||slug}</span><span class="drawer-tag">${r.room||room}</span></div></div><div class="drawer-right"><span class="drawer-contact">${typeof r.similarity==="number" ? r.similarity.toFixed(2) : ""}</span></div></div>`;
-            section.appendChild(entry);
-          });
-        }
-      }catch{}
+        // The /search endpoint does semantic search; room/wing filter server-side.
+        // Passing the room label as the query gives us room-scoped results when no
+        // user query is active.
+        res = await searchPalace(roomLabel, slug, room);
+      } catch (err) {
+        console.error("Room /search failed:", err);
+      }
+      if(!section) return;
+      const results: any[] = Array.isArray(res?.results) ? res.results : [];
+      const memCountEl=root.querySelector('.room-mem-count');
+      if(memCountEl) memCountEl.textContent=String(results.length);
+      if(results.length === 0){
+        section.innerHTML = `<div class="drawer-empty"><div class="drawer-empty-title">No memories in this room yet</div><div class="drawer-empty-sub">Once ${escapeHtml(profile.name)} stores memories tagged <em>${escapeHtml(room)}</em>, they'll show up here.</div></div>`;
+        return;
+      }
+      section.innerHTML = "";
+      results.slice(0,30).forEach((r:any)=>{
+        const text = String(r.text || r.summary || r.content || "");
+        const titleText = text.length > 80 ? `${text.slice(0,80).trim()}…` : (text || "Memory");
+        const sim = typeof r.similarity === "number" ? r.similarity.toFixed(2) : "";
+        const entry=document.createElement("div");
+        entry.className="drawer";
+        entry.innerHTML=`<div class="drawer-top"><div class="drawer-date">${escapeHtml(r.date||r.source_file||"")}</div><div class="drawer-content"><div class="drawer-title">${escapeHtml(titleText)}</div><div class="drawer-summary">${escapeHtml(text)}</div><div class="drawer-tags"><span class="drawer-tag">${escapeHtml(r.wing||slug)}</span><span class="drawer-tag">${escapeHtml(r.room||room)}</span></div></div><div class="drawer-right"><span class="drawer-contact">${sim}</span></div></div>`;
+        section.appendChild(entry);
+      });
     })();
-  },[params.slug,params.room]);
-  return <div ref={ref} dangerouslySetInnerHTML={{__html:HTML}} />;
+  },[slug, room, roomLabel, profile.name]);
+  return <div ref={ref} dangerouslySetInnerHTML={{__html:html}} />;
 }

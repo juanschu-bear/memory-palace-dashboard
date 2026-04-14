@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
 import { fetchContacts, fetchOwners, fetchConversations, fetchMemories } from "@/lib/api";
 
 const HTML = `<nav class="breadcrumb">
@@ -96,49 +95,97 @@ const HTML = `<nav class="breadcrumb">
 
 </div>`;
 
+function escapeHtml(s: string){
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function matchesContact(id: string | number | undefined, record: any){
+  if (id === undefined || id === null) return false;
+  const target = String(id);
+  return String(record?.contact_id ?? "") === target || String(record?.wa_contact_id ?? "") === target;
+}
+
 export default function ContactsPage(){
   const ref = useRef<HTMLDivElement>(null);
-  const params = useParams();
   useEffect(()=>{
     document.body.classList.add("light-contacts");
     const root=ref.current; if(!root) return;
     (async()=>{
-      try{
-        const [contacts, owners, conversations, memories] = await Promise.all([fetchContacts(), fetchOwners(), fetchConversations(), fetchMemories()]);
-        const list=root.querySelector('.contacts-list');
-        const cCount=root.querySelector('.contacts-live-count');
-        const sCount=root.querySelector('.sessions-live-count');
-        if(cCount) cCount.textContent=String(Array.isArray(contacts)?contacts.length:0);
-        if(sCount) sCount.textContent=String(Array.isArray(conversations)?conversations.length:0);
-        if(list && Array.isArray(contacts)){
-          list.innerHTML="";
-          contacts.slice(0,50).forEach((c:any)=>{
-            const id = c.id ?? c.contact_id;
-            const conv=(conversations as any[]).filter((x:any)=>x.contact_id===id || x.wa_contact_id===id);
-            const ownerIds=new Set(conv.map((x:any)=>x.owner_id).filter(Boolean));
-            const ownerNames=(owners as any[]).filter((o:any)=>ownerIds.has(o.id)).map((o:any)=>o.display_name||o.name);
-            const node=document.createElement("div");
-            node.className="contact-card";
-            node.innerHTML=`<div class="contact-initial">${String((c.display_name||c.name||"?")).charAt(0).toUpperCase()}</div><div class="contact-info"><div class="contact-name">${c.display_name||c.name||"Unknown"}</div><div class="contact-detail">${c.notes||c.phone||""}</div><div class="contact-avatars">${ownerNames.map((n:string)=>`<span class="avatar-chip">${n}</span>`).join("")}</div></div><div class="contact-stats"><div class="contact-stat-num">${conv.length}</div><div class="contact-stat-label">Sessions</div><div class="contact-last-seen">Last seen: ${String(c.updated_at||"").slice(0,10)}</div></div>`;
-            node.style.cursor="pointer";
-            node.addEventListener("click",()=>{
-              const sameContactMem=(memories as any[]).filter((m:any)=>m.contact_id===id || m.wa_contact_id===id);
-              let details=node.querySelector(".contact-detail-panel") as HTMLDivElement|null;
-              if(details){ details.remove(); return; }
-              details=document.createElement("div");
-              details.className="contact-detail-panel";
-              details.style.marginTop="0.75rem";
-              details.style.padding="0.75rem";
-              details.style.borderTop="1px solid rgba(184,149,106,0.2)";
-              details.innerHTML=`<div><strong>Conversations:</strong> ${conv.length}</div><div><strong>Memories:</strong> ${sameContactMem.length}</div><div style="margin-top:0.4rem;font-size:0.85rem;opacity:0.8">${sameContactMem.slice(0,3).map((m:any)=>m.summary||m.content||m.text||"").join("<br/>")}</div>`;
-              node.appendChild(details);
-            });
-            list.appendChild(node);
-          });
-        }
-      }catch{}
+      let contacts: any[] = [], owners: any[] = [], conversations: any[] = [], memories: any[] = [];
+      try {
+        [contacts, owners, conversations, memories] = await Promise.all([
+          fetchContacts(), fetchOwners(), fetchConversations(), fetchMemories(),
+        ]);
+      } catch (err) {
+        console.error("Contacts fetch failed:", err);
+      }
+      const list = root.querySelector('.contacts-list');
+      const cCount = root.querySelector('.contacts-live-count');
+      const sCount = root.querySelector('.sessions-live-count');
+      if (cCount) cCount.textContent = String(Array.isArray(contacts) ? contacts.length : 0);
+      if (sCount) sCount.textContent = String(Array.isArray(conversations) ? conversations.length : 0);
+      if (!list) return;
+      list.innerHTML = "";
+      if (!Array.isArray(contacts) || contacts.length === 0) {
+        list.innerHTML = `<div class="contacts-empty">No contacts yet. Once users talk to your avatars, they'll appear here.</div>`;
+        return;
+      }
+      contacts.slice(0, 100).forEach((c: any) => {
+        const id = c.id ?? c.contact_id;
+        const conv = conversations.filter((x) => matchesContact(id, x));
+        const mems = memories
+          .filter((m) => matchesContact(id, m))
+          .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+        const ownerIds = new Set(conv.map((x) => x.owner_id).filter(Boolean));
+        const ownerNames = owners
+          .filter((o) => ownerIds.has(o.id))
+          .map((o) => o.display_name || o.name)
+          .filter(Boolean);
+        const name = c.display_name || c.name || "Unknown";
+        const initial = name.charAt(0).toUpperCase() || "?";
+        const node = document.createElement("div");
+        node.className = "contact-card";
+        node.innerHTML = `<div class="contact-initial">${escapeHtml(initial)}</div>
+<div class="contact-info"><div class="contact-name">${escapeHtml(name)}</div><div class="contact-detail">${escapeHtml(c.notes || c.phone || "")}</div><div class="contact-avatars">${ownerNames.map((n: string) => `<span class="avatar-chip">${escapeHtml(n)}</span>`).join("")}</div></div>
+<div class="contact-stats"><div class="contact-stat-num">${conv.length}</div><div class="contact-stat-label">Sessions</div><div class="contact-last-seen">Last seen: ${escapeHtml(String(c.updated_at || "").slice(0, 10))}</div></div>`;
+        node.addEventListener("click", (ev) => {
+          // Avoid toggling when clicking inside an already-open panel.
+          if ((ev.target as HTMLElement)?.closest(".contact-detail-panel")) return;
+          const existing = node.querySelector(".contact-detail-panel") as HTMLElement | null;
+          if (existing) { existing.remove(); node.classList.remove("contact-card-open"); return; }
+          node.classList.add("contact-card-open");
+          const panel = document.createElement("div");
+          panel.className = "contact-detail-panel";
+          const convHtml = conv.length
+            ? `<ul class="contact-conv-list">${conv
+                .slice(0, 20)
+                .map((x) => {
+                  const date = String(x.updated_at || x.created_at || "").slice(0, 10);
+                  const summary = x.summary || x.last_message || x.title || "Conversation";
+                  return `<li><span class="conv-date">${escapeHtml(date)}</span><span class="conv-summary">${escapeHtml(String(summary))}</span></li>`;
+                })
+                .join("")}</ul>`
+            : `<p class="contact-panel-empty">No conversations logged.</p>`;
+          const memHtml = mems.length
+            ? `<div class="contact-mem-grid">${mems
+                .slice(0, 12)
+                .map((m) => {
+                  const title = m.title || m.topic || "Memory";
+                  const body = m.summary || m.content || m.text || "";
+                  const date = String(m.created_at || m.updated_at || "").slice(0, 10);
+                  return `<div class="contact-mem-card"><div class="mem-meta">${escapeHtml(date)}</div><div class="mem-title">${escapeHtml(String(title))}</div><div class="mem-body">${escapeHtml(String(body))}</div></div>`;
+                })
+                .join("")}</div>`
+            : `<p class="contact-panel-empty">No memories stored for this contact.</p>`;
+          panel.innerHTML = `
+            <div class="contact-panel-section"><h3>Conversations <span class="count">${conv.length}</span></h3>${convHtml}</div>
+            <div class="contact-panel-section"><h3>Memories <span class="count">${mems.length}</span></h3>${memHtml}</div>`;
+          node.appendChild(panel);
+        });
+        list.appendChild(node);
+      });
     })();
     return ()=>{ document.body.classList.remove("light-contacts"); };
-  },[params.slug,params.room]);
+  },[]);
   return <div ref={ref} dangerouslySetInnerHTML={{__html:HTML}} />;
 }

@@ -1,137 +1,33 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { readDiary } from "@/lib/api";
+import { findAvatar } from "@/lib/avatars";
 
 const HTML = `<!-- Breadcrumb -->
 <nav class="breadcrumb">
-  <a>Palace</a>
+  <a href="/diary">Diary</a>
   <span class="sep">/</span>
-  <a>Trace Flores</a>
-  <span class="sep">/</span>
-  <span class="current">Diary</span>
+  <span class="current diary-crumb-name">__WING_NAME__</span>
 </nav>
 
 <div class="diary-container">
 
   <!-- Cover -->
   <section class="diary-cover">
-    <div class="diary-avatar-mark">TF</div>
-    <h1>Trace's Diary</h1>
+    <div class="diary-avatar-mark">__WING_INITIALS__</div>
+    <h1>__WING_FIRST__'s Diary</h1>
     <p class="diary-subtitle">What I learned, what I noticed, what I would do differently.</p>
-    <p class="diary-meta">5 entries &middot; 3 skills recognized &middot; Since March 2026</p>
+    <p class="diary-meta">0 entries</p>
   </section>
 
   <div class="diary-rule"></div>
 
-  <!-- Tag filter -->
-  <div class="tag-filter">
-    <button class="tag-chip active">All</button>
-    <button class="tag-chip">skill</button>
-    <button class="tag-chip">pattern</button>
-    <button class="tag-chip">contact: maria</button>
-    <button class="tag-chip">contact: pedro</button>
-    <button class="tag-chip">pricing</button>
-    <button class="tag-chip">avoidance</button>
-  </div>
+  <!-- Tag filter (populated at runtime) -->
+  <div class="tag-filter"></div>
 
-  <!-- Entries -->
+  <!-- Entries (populated at runtime) -->
   <section class="entries">
-
-    <article class="entry">
-      <div class="entry-date">April 13, 2026</div>
-      <div class="entry-body">
-        <p>Something clicked today. <span class="insight">When someone switches topics fast, they are protecting something.</span> I have seen this three times now. Maria does it with pricing, Pedro does it with delegation, Lisa did it with her partnership.</p>
-        <p>The surface topic is never the real topic. From now on, when I notice the switch, I skip the surface entirely and go straight to: "What are you protecting right now?"</p>
-        <p>That question landed harder than anything else I have tried this month.</p>
-      </div>
-      <div class="entry-tags">
-        <span class="entry-tag skill">skill/direct-questioning</span>
-        <span class="entry-tag pattern">pattern/topic-switching-as-avoidance</span>
-        <span class="entry-tag contact">contact/maria</span>
-        <span class="entry-tag contact">contact/pedro</span>
-      </div>
-    </article>
-
-    <article class="entry">
-      <div class="entry-date">April 10, 2026</div>
-      <div class="entry-body">
-        <p>Pedro is stuck in a loop. Two sessions now, same question dressed in different words: "What if they leave?" He is not asking me. He is asking himself. And he already knows the answer.</p>
-        <p>I tried pushing him the way I pushed Maria. Did not work. <span class="insight">Direct confrontation works for Maria because she respects bluntness. Pedro needs to arrive at the answer himself.</span> Different people, different doors.</p>
-        <p>Next time with Pedro, I will ask him to argue the opposite position. Make him defend his own value out loud. Let him hear himself say it.</p>
-      </div>
-      <div class="entry-tags">
-        <span class="entry-tag skill">skill/adaptive-strategy</span>
-        <span class="entry-tag pattern">pattern/loop-without-progress</span>
-        <span class="entry-tag contact">contact/pedro</span>
-      </div>
-    </article>
-
-    <article class="entry">
-      <div class="entry-date">April 8, 2026</div>
-      <div class="entry-body">
-        <p>Cross-contact pattern I cannot ignore anymore: <span class="insight">pricing fear is never about the market. It is always about self-worth.</span> Every single person. Maria, Pedro, Lisa. Three completely different industries, three different price points, same root.</p>
-        <p>I used to spend the first session talking about market positioning, competitor pricing, value ladders. Waste of time. The real conversation starts when you ask: "Do you believe your work is worth this number?"</p>
-        <p>If the answer is no, no amount of market data will fix it.</p>
-      </div>
-      <div class="entry-tags">
-        <span class="entry-tag skill">skill/pattern-recognition</span>
-        <span class="entry-tag pattern">pattern/pricing-equals-self-worth</span>
-      </div>
-    </article>
-
-    <article class="entry">
-      <div class="entry-date">April 2, 2026</div>
-      <div class="entry-body">
-        <p>Maria launched. 12 signups in one week at 297. She cried during the session. Not sad crying. The kind where something heavy finally lifts.</p>
-        <p>What worked: I did not celebrate the number. I asked her how it felt to prove herself right. That mattered more than the revenue.</p>
-        <p><span class="insight">Celebrating the courage matters more than celebrating the result.</span> The result follows the courage, not the other way around. I will remember this.</p>
-      </div>
-      <div class="entry-tags">
-        <span class="entry-tag skill">skill/emotional-calibration</span>
-        <span class="entry-tag contact">contact/maria</span>
-      </div>
-    </article>
-
-    <article class="entry">
-      <div class="entry-date">March 28, 2026</div>
-      <div class="entry-body">
-        <p>First session with Maria. She presented herself as confident, structured, analytical. OPM told a different story. Voice tremor at 0.74 when discussing pricing. Speaking pace increased 40% compared to baseline whenever money came up.</p>
-        <p>The words said "I have a strategy." The voice said "I am terrified."</p>
-        <p>I chose not to call it out directly. Too early. But I noted it. <span class="insight">The incongruence between words and voice is always where the real conversation lives.</span></p>
-      </div>
-      <div class="entry-tags">
-        <span class="entry-tag pattern">pattern/word-voice-incongruence</span>
-        <span class="entry-tag contact">contact/maria</span>
-      </div>
-    </article>
-
-  </section>
-
-  <!-- Skills extracted -->
-  <section class="skills-summary">
-    <p class="skills-summary-title">Skills Trace has developed</p>
-    <div class="skills-grid">
-      <div class="skill-card">
-        <div class="skill-name">Pattern recognition</div>
-        <div class="skill-detail">Identifying recurring behavioral themes across different contacts and contexts</div>
-        <div class="skill-frequency">Referenced in 3 entries</div>
-      </div>
-      <div class="skill-card">
-        <div class="skill-name">Direct questioning</div>
-        <div class="skill-detail">Cutting through surface topics to the real issue with a single targeted question</div>
-        <div class="skill-frequency">Referenced in 2 entries</div>
-      </div>
-      <div class="skill-card">
-        <div class="skill-name">Adaptive strategy</div>
-        <div class="skill-detail">Adjusting communication approach based on each contact's personality and response patterns</div>
-        <div class="skill-frequency">Referenced in 1 entry</div>
-      </div>
-      <div class="skill-card">
-        <div class="skill-name">Emotional calibration</div>
-        <div class="skill-detail">Recognizing what to celebrate and when, matching emotional response to the person's real need</div>
-        <div class="skill-frequency">Referenced in 1 entry</div>
-      </div>
-    </div>
+    <div class="diary-loading">Opening the diary…</div>
   </section>
 
   <div class="diary-footer">
@@ -140,40 +36,112 @@ const HTML = `<!-- Breadcrumb -->
 
 </div>`;
 
+function escapeHtml(s: string){
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
 export default function DiaryPage(){
   const ref = useRef<HTMLDivElement>(null);
   const params = useParams();
+  const slug = (params.slug as string) || "trace-flores";
+  const profile = findAvatar(slug);
+  const html = useMemo(
+    () => HTML
+      .replaceAll("__WING_NAME__", profile.name)
+      .replaceAll("__WING_FIRST__", profile.name.split(" ")[0])
+      .replaceAll("__WING_INITIALS__", profile.initials),
+    [profile.name, profile.initials],
+  );
+
   useEffect(()=>{
     document.body.classList.add("light-diary");
     const root=ref.current; if(!root) return;
+    const entries = root.querySelector('.entries') as HTMLElement | null;
+    const tagFilter = root.querySelector('.tag-filter') as HTMLElement | null;
+    const meta = root.querySelector('.diary-meta');
+
     (async()=>{
-      try{
-        const slug=(params.slug as string)||'trace-flores';
-        const d=await readDiary(slug,20);
-        const entries=root.querySelector('.entries');
-        const name=slug.split("-").map((s)=>s.charAt(0).toUpperCase()+s.slice(1)).join(" ");
-        const h1=root.querySelector('.diary-cover h1');
-        const meta=root.querySelector('.diary-meta');
-        const crumb=root.querySelector('.breadcrumb a:last-of-type');
-        if(h1) h1.textContent=`${name}'s Diary`;
-        if(crumb) crumb.textContent=name;
-        if(meta) meta.textContent=`${Number(d?.total ?? d?.entries?.length ?? 0)} entries`;
-        if(entries && Array.isArray(d?.entries)){
-          entries.innerHTML="";
-          d.entries.forEach((e:any)=>{
-            const node=document.createElement("article");
-            node.className="entry";
-            const content=String(e.content||"");
-            const topic=String(e.topic||"general");
-            node.innerHTML=`<div class="entry-date">${e.date||""}</div><div class="entry-body"><p></p></div><div class="entry-tags"><span class="entry-tag pattern">${topic}</span></div>`;
-            const p = node.querySelector("p");
-            if (p) p.textContent = content;
-            entries.appendChild(node);
-          });
+      let d: any = null;
+      try {
+        // Agent slug uses hyphens (e.g. "trace-flores") per the MemPalace API.
+        d = await readDiary(slug, 50);
+      } catch (err) {
+        console.error("Diary /diary/read failed:", err);
+      }
+      const rawEntries: any[] = Array.isArray(d?.entries) ? d.entries : [];
+      if (meta) meta.textContent = `${Number(d?.total ?? rawEntries.length)} ${rawEntries.length === 1 ? "entry" : "entries"}`;
+
+      if (!entries) return;
+      entries.innerHTML = "";
+
+      if (rawEntries.length === 0) {
+        entries.innerHTML = `<div class="diary-empty"><p>${escapeHtml(profile.name)} hasn't written any entries yet.</p><p class="diary-empty-sub">Diary entries grow as the avatar reflects on conversations.</p></div>`;
+        if (tagFilter) tagFilter.innerHTML = "";
+        return;
+      }
+
+      // Build unique topic set for dynamic filter chips.
+      const topics = new Set<string>();
+      rawEntries.forEach((e) => {
+        const t = String(e.topic || "general").trim();
+        if (t) topics.add(t);
+      });
+
+      if (tagFilter) {
+        tagFilter.innerHTML = "";
+        const makeChip = (label: string, value: string, active: boolean) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "tag-chip" + (active ? " active" : "");
+          btn.textContent = label;
+          btn.dataset.filter = value;
+          return btn;
+        };
+        tagFilter.appendChild(makeChip("All", "__all__", true));
+        Array.from(topics).sort().forEach((t) => tagFilter.appendChild(makeChip(t, t, false)));
+      }
+
+      // Render entries (latest first).
+      const sorted = [...rawEntries].sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+      sorted.forEach((e) => {
+        const content = String(e.content || "");
+        const topic = String(e.topic || "general");
+        const date = String(e.date || "");
+        const node = document.createElement("article");
+        node.className = "entry";
+        node.dataset.topic = topic;
+        node.innerHTML = `<div class="entry-date">${escapeHtml(date)}</div><div class="entry-body"></div><div class="entry-tags"><span class="entry-tag pattern">${escapeHtml(topic)}</span></div>`;
+        const body = node.querySelector(".entry-body");
+        content.split(/\n{2,}/).forEach((para) => {
+          if (!para.trim()) return;
+          const p = document.createElement("p");
+          p.textContent = para;
+          body?.appendChild(p);
+        });
+        if (body && !body.firstChild) {
+          const p = document.createElement("p");
+          p.textContent = content;
+          body.appendChild(p);
         }
-      }catch{}
+        entries.appendChild(node);
+      });
+
+      // Wire filter chips to actually filter entries.
+      if (tagFilter) {
+        tagFilter.addEventListener("click", (ev) => {
+          const target = ev.target as HTMLElement;
+          if (!target?.classList?.contains("tag-chip")) return;
+          const filter = target.dataset.filter || "__all__";
+          tagFilter.querySelectorAll(".tag-chip").forEach((c) => c.classList.remove("active"));
+          target.classList.add("active");
+          entries.querySelectorAll<HTMLElement>(".entry").forEach((node) => {
+            const topic = node.dataset.topic || "";
+            node.style.display = filter === "__all__" || topic === filter ? "" : "none";
+          });
+        });
+      }
     })();
     return ()=>{ document.body.classList.remove("light-diary"); };
-  },[params.slug,params.room]);
-  return <div ref={ref} dangerouslySetInnerHTML={{__html:HTML}} />;
+  },[slug, profile.name, profile.initials]);
+  return <div ref={ref} dangerouslySetInnerHTML={{__html:html}} />;
 }

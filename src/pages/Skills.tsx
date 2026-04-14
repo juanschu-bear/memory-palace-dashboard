@@ -175,6 +175,14 @@ for (let i = 0; i < 60; i++) {
 }
 </script>`;
 
+function escapeHtml(s: string){
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function humanize(s: string){
+  return s.replace("skill/", "").replaceAll("-", " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export default function SkillsPage(){
   const ref = useRef<HTMLDivElement>(null);
   const params = useParams();
@@ -192,24 +200,90 @@ export default function SkillsPage(){
     const root=ref.current; if(!root) return;
     const crumb=root.querySelector('.skill-crumb-name');
     if(crumb) crumb.textContent=`${profile.name}'s Skills`;
+    const cards = root.querySelector('.skills-detail') as HTMLElement | null;
+    const constellation = root.querySelector('.constellation-section svg') as SVGSVGElement | null;
+    // Clear placeholder skill cards immediately so stale Trace data never leaks.
+    if (cards) cards.innerHTML = `<p class="skills-detail-title">Skill inventory</p><div class="skills-loading">Gathering reflections…</div>`;
+
     (async()=>{
-      try{
-        const d=await readDiary(slug,50);
-        const counts: Record<string, number> = {};
-        (d?.entries||[]).forEach((e:any)=>{
-          const text=JSON.stringify(e);
-          const matches=text.match(/skill\/[a-z0-9-]+/gi) || [];
-          matches.forEach((m)=>{ counts[m.toLowerCase()] = (counts[m.toLowerCase()]||0) + 1; });
+      let d: any = null;
+      try {
+        d = await readDiary(slug, 50);
+      } catch (err) {
+        console.error("Skills /diary/read failed:", err);
+      }
+      const entries: any[] = Array.isArray(d?.entries) ? d.entries : [];
+      // Count skill tags and remember which entries reference each skill.
+      const stats = new Map<string, { count: number; dates: string[]; entries: any[] }>();
+      entries.forEach((e) => {
+        const text = JSON.stringify(e).toLowerCase();
+        const matches = text.match(/skill\/[a-z0-9-]+/g) || [];
+        const unique = new Set(matches);
+        unique.forEach((tag) => {
+          const prev = stats.get(tag) || { count: 0, dates: [], entries: [] };
+          prev.count += 1;
+          if (e.date) prev.dates.push(String(e.date));
+          prev.entries.push(e);
+          stats.set(tag, prev);
         });
-        const list=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5);
-        const cards=root.querySelector('.skills-detail');
-        if(cards && list.length){
-          const nodes=list.map(([skill,count])=>`<div class="skill-detail-card"><div class="skill-intensity intensity-${count>2?"strong":count>1?"moderate":"emerging"}"></div><div class="skill-detail-info"><div class="skill-detail-name">${skill.replace("skill/","").replaceAll("-"," ")}</div><div class="skill-detail-avatar">${slug.replaceAll("-"," ")}</div></div><div class="skill-detail-right"><div class="skill-detail-count">${count}</div><div class="skill-detail-label">References</div></div></div>`);
-          cards.innerHTML = `<p class="skills-detail-title">Skill inventory</p>${nodes.join("")}`;
-        } else if (cards) {
-          cards.innerHTML = `<p class="skills-detail-title">Skill inventory</p><div class="skill-detail-card"><div class="skill-detail-info"><div class="skill-detail-name">No skills detected yet</div><div class="skill-detail-desc">Diary entries currently contain no skill/ tags. Add tagged reflections to build the constellation.</div></div></div>`;
+      });
+      const ranked = Array.from(stats.entries()).sort((a, b) => b[1].count - a[1].count);
+
+      if (cards) {
+        if (ranked.length === 0) {
+          cards.innerHTML = `<p class="skills-detail-title">Skill inventory</p><div class="skills-empty"><div class="skills-empty-title">No skills detected yet</div><div class="skills-empty-sub">Skills emerge from diary reflections. Tag entries with <code>skill/…</code> and they'll show up here.</div></div>`;
+        } else {
+          cards.innerHTML = `<p class="skills-detail-title">Skill inventory</p>`;
+          ranked.forEach(([tag, info]) => {
+            const intensity = info.count > 2 ? "strong" : info.count > 1 ? "moderate" : "emerging";
+            const firstDate = info.dates.slice().sort()[0] || "";
+            const wrap = document.createElement("div");
+            wrap.className = "skill-detail-card";
+            wrap.tabIndex = 0;
+            wrap.innerHTML = `<div class="skill-intensity intensity-${intensity}"></div>
+<div class="skill-detail-info">
+  <div class="skill-detail-name">${escapeHtml(humanize(tag))}</div>
+  <div class="skill-detail-desc">${escapeHtml(info.entries[0]?.content?.slice(0, 180) || "")}</div>
+  <div class="skill-detail-avatar">${escapeHtml(profile.name)}</div>
+</div>
+<div class="skill-detail-right">
+  <div class="skill-detail-count">${info.count}</div>
+  <div class="skill-detail-label">${info.count === 1 ? "Reference" : "References"}</div>
+  <div class="skill-detail-first">${escapeHtml(firstDate ? `Since ${firstDate}` : "Emerging")}</div>
+</div>`;
+            const panel = document.createElement("div");
+            panel.className = "skill-detail-panel";
+            panel.innerHTML = info.entries
+              .slice(0, 5)
+              .map(
+                (e) =>
+                  `<div class="skill-ref"><div class="skill-ref-date">${escapeHtml(String(e.date || ""))}</div><div class="skill-ref-body">${escapeHtml(String(e.content || "").slice(0, 260))}</div></div>`,
+              )
+              .join("");
+            wrap.appendChild(panel);
+            wrap.addEventListener("click", () => wrap.classList.toggle("skill-detail-card-open"));
+            cards.appendChild(wrap);
+          });
         }
-      }catch{}
+      }
+
+      // Replace constellation stars with one star per skill, ranked by count.
+      if (constellation) {
+        const existing = constellation.querySelectorAll('.skill-node, .skill-connection');
+        existing.forEach((n) => n.remove());
+        const positions = [
+          [180, 140], [360, 100], [500, 180], [250, 260], [540, 300], [120, 320], [420, 320],
+        ];
+        ranked.slice(0, positions.length).forEach(([tag, info], idx) => {
+          const [x, y] = positions[idx];
+          const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+          g.setAttribute("class", "skill-node");
+          g.setAttribute("transform", `translate(${x}, ${y})`);
+          const r = Math.min(8, 3 + info.count);
+          g.innerHTML = `<circle class="skill-star" r="${r}" fill="#E8A050" fill-opacity="${Math.min(0.4, 0.1 + info.count * 0.08)}" stroke="#E8A050" stroke-opacity="${Math.min(0.7, 0.3 + info.count * 0.08)}" stroke-width="0.8"/><circle r="${r/3}" fill="#E8A050" fill-opacity="0.8"/><text class="skill-label" x="${r+6}" y="4">${humanize(tag)}</text><text class="skill-sublabel" x="${r+6}" y="16">${info.count} ${info.count === 1 ? "reference" : "references"}</text>`;
+          constellation.appendChild(g);
+        });
+      }
     })();
   },[slug, profile.name]);
   return <div ref={ref} dangerouslySetInnerHTML={{__html:html}} />;
