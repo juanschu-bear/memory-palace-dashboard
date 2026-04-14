@@ -220,10 +220,10 @@ export default function RoomPage(){
     (async()=>{
       let res: any = null;
       try{
-        // The /search endpoint does semantic search; room/wing filter server-side.
-        // Passing the room label as the query gives us room-scoped results when no
-        // user query is active.
-        res = await searchPalace(roomLabel, slug, room);
+        // Semantic search: query = room name biases results toward the room,
+        // wing filters to this avatar's memories. No explicit room filter —
+        // MemPalace only reliably scopes by wing.
+        res = await searchPalace(roomLabel, slug);
       } catch (err) {
         console.error("Room /search failed:", err);
       }

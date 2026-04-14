@@ -50,8 +50,12 @@ const PROFILES: Record<string, { name: string; role: string; wing: string }> = {
 };
 
 function wingCount(status: any, slug: string) {
-  const key = slug.replace(/-/g, "_");
-  return status?.wings?.[slug] ?? status?.wings?.[key] ?? status?.wings?.[`wing_${key}`] ?? 0;
+  // Only the hyphenated slug is legitimate. wing_* duplicates are ignored.
+  return Number(status?.wings?.[slug] ?? 0);
+}
+
+function roomCount(status: any, room: string) {
+  return Number(status?.rooms?.[room] ?? 0);
 }
 
 export default function WingPage() {
@@ -86,7 +90,20 @@ export default function WingPage() {
     fetchPalaceStatus().then((s) => {
       const el = root.querySelector(".wing-memory-count");
       if (el) el.textContent = String(wingCount(s, slug));
-    }).catch(() => {});
+      // Populate each door's memory count from /status.rooms (global counts —
+      // MemPalace does not expose per-wing per-room counts yet).
+      root.querySelectorAll<HTMLElement>(".room-door[data-route]").forEach((door) => {
+        const route = door.dataset.route || "";
+        const m = route.match(/\/room\/([^/]+)/);
+        const roomSlug = m?.[1];
+        const label = door.querySelector(".door-count");
+        if (!label) return;
+        if (roomSlug) {
+          const n = roomCount(s, roomSlug);
+          label.textContent = `${n} ${n === 1 ? "memory" : "memories"}`;
+        }
+      });
+    }).catch((err) => { console.error("Wing /status failed:", err); });
 
     return () => {
       document.body.classList.remove("wing-page");

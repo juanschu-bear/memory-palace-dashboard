@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
 import { fetchPalaceStatus, readDiary } from "@/lib/api";
 
 const AVATAR_SLUGS = ["trace-flores","juan-schubert","adri-kastel","prof-brian-cox","clara-fontaine","elena-navarro"];
@@ -127,59 +126,82 @@ const HTML = `<!-- Global Navigation -->
   <p>ONIOKO &middot; Memory Palace &middot; EXIDEUS LLC</p>
 </div>
 
-<script>
-// Stars
-const starsEl = document.getElementById('stars');
-for (let i = 0; i < 120; i++) {
-  const star = document.createElement('div');
-  const size = Math.random() * 2 + 0.5;
-  Object.assign(star.style, {
-    position: 'absolute',
-    width: size + 'px', height: size + 'px',
-    background: '#fff', borderRadius: '50%',
-    left: Math.random() * 100 + '%',
-    top: Math.random() * 55 + '%',
-    opacity: Math.random() * 0.6 + 0.1,
-  });
-  starsEl.appendChild(star);
-}
-
-// Smooth scroll
-document.querySelector('.enter-btn').addEventListener('click', (e) => {
-  e.preventDefault();
-  document.getElementById('corridors').scrollIntoView({ behavior: 'smooth' });
-});
-</script>`;
+`;
 
 export default function EntrancePage(){
   const ref = useRef<HTMLDivElement>(null);
-  const params = useParams();
-  useEffect(()=>{
-    const root=ref.current; if(!root) return;
-    (async()=>{
-      try{
-        const s=await fetchPalaceStatus();
-        const vals=root.querySelectorAll('.stats-bar .val');
-        const diaryTotals = await Promise.all(AVATAR_SLUGS.map(async (slug)=>{ try { const d = await readDiary(slug,100); return Number(d?.total ?? d?.entries?.length ?? 0); } catch { return 0; } }));
-        const diaryCount = diaryTotals.reduce((a,b)=>a+b,0);
-        // Wings and Rooms are a fixed structural count, not derived from /status.
-        if(vals[0]) vals[0].textContent=String(AVATAR_SLUGS.length);
-        if(vals[1]) vals[1].textContent=String(s?.total_drawers ?? 0);
-        if(vals[2]) vals[2].textContent=String(diaryCount);
-        if(vals[3]) vals[3].textContent=String(STANDARD_ROOMS.length);
 
-        const corridors=Array.from(root.querySelectorAll('.wing-corridor'));
-        corridors.forEach((c)=>{
-          const href=(c as HTMLAnchorElement).getAttribute("href")||"";
-          const slug=href.split("/wing/")[1]||"";
-          const key=slug.replace(/-/g,"_");
-          // Prefer the exact slug; fall back to underscore or legacy "wing_*" keys.
-          const count=Number(s?.wings?.[slug] ?? s?.wings?.[key] ?? s?.wings?.[`wing_${key}`] ?? 0);
-          const label=c.querySelector('.corridor-count');
-          if(label) label.textContent=`${count} Memor${count===1?"y":"ies"}`;
+  // React does not execute <script> tags inside dangerouslySetInnerHTML,
+  // so we create stars and wire the Enter button imperatively here.
+  useEffect(() => {
+    const root = ref.current;
+    if (!root) return;
+    const starsEl = root.querySelector<HTMLDivElement>('#stars');
+    if (starsEl && starsEl.childElementCount === 0) {
+      for (let i = 0; i < 120; i++) {
+        const star = document.createElement('div');
+        const size = Math.random() * 2 + 0.5;
+        Object.assign(star.style, {
+          position: 'absolute',
+          width: size + 'px',
+          height: size + 'px',
+          background: '#fff',
+          borderRadius: '50%',
+          left: Math.random() * 100 + '%',
+          top: Math.random() * 55 + '%',
+          opacity: String(Math.random() * 0.6 + 0.1),
         });
-      }catch{}
+        starsEl.appendChild(star);
+      }
+    }
+    const enterBtn = root.querySelector<HTMLAnchorElement>('.enter-btn');
+    const handleEnter = (e: Event) => {
+      e.preventDefault();
+      root.querySelector('#corridors')?.scrollIntoView({ behavior: 'smooth' });
+    };
+    enterBtn?.addEventListener('click', handleEnter);
+    return () => enterBtn?.removeEventListener('click', handleEnter);
+  }, []);
+
+  useEffect(() => {
+    const root = ref.current;
+    if (!root) return;
+    (async () => {
+      try {
+        const s = await fetchPalaceStatus();
+        const vals = root.querySelectorAll('.stats-bar .val');
+        const diaryTotals = await Promise.all(
+          AVATAR_SLUGS.map(async (slug) => {
+            try {
+              const d = await readDiary(slug, 100);
+              return Number(d?.total ?? d?.entries?.length ?? 0);
+            } catch {
+              return 0;
+            }
+          }),
+        );
+        const diaryCount = diaryTotals.reduce((a, b) => a + b, 0);
+        // Wings and Rooms are a fixed structural count, not derived from /status.
+        if (vals[0]) vals[0].textContent = String(AVATAR_SLUGS.length);
+        if (vals[1]) vals[1].textContent = String(s?.total_drawers ?? 0);
+        if (vals[2]) vals[2].textContent = String(diaryCount);
+        if (vals[3]) vals[3].textContent = String(STANDARD_ROOMS.length);
+
+        const corridors = Array.from(root.querySelectorAll('.wing-corridor'));
+        corridors.forEach((c) => {
+          const href = (c as HTMLAnchorElement).getAttribute('href') || '';
+          const slug = href.split('/wing/')[1] || '';
+          // Only the hyphenated slug is legitimate; wing_* keys are legacy
+          // duplicates that we explicitly ignore.
+          const count = Number(s?.wings?.[slug] ?? 0);
+          const label = c.querySelector('.corridor-count');
+          if (label) label.textContent = `${count} Memor${count === 1 ? 'y' : 'ies'}`;
+        });
+      } catch (err) {
+        console.error('Entrance status fetch failed:', err);
+      }
     })();
-  },[params.slug,params.room]);
-  return <div ref={ref} dangerouslySetInnerHTML={{__html:HTML}} />;
+  }, []);
+
+  return <div ref={ref} dangerouslySetInnerHTML={{ __html: HTML }} />;
 }

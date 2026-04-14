@@ -155,11 +155,10 @@ export default function TunnelsPage(){
       try { status = await fetchPalaceStatus(); } catch (err) { console.error("Tunnels /status failed:", err); }
 
       // Populate each wing node with its actual memory count from /status.wings.
+      // Only the hyphenated slug is legitimate — wing_* keys are legacy
+      // duplicates and must be ignored.
       const wings = (status?.wings || {}) as Record<string, number>;
-      const countFor = (wingSlug: string) => {
-        const key = wingSlug.replace(/-/g, "_");
-        return Number(wings?.[wingSlug] ?? wings?.[key] ?? wings?.[`wing_${key}`] ?? 0);
-      };
+      const countFor = (wingSlug: string) => Number(wings?.[wingSlug] ?? 0);
       root.querySelectorAll<SVGGElement>('.wing-node[data-slug]').forEach((node) => {
         const wingSlug = node.dataset.slug || "";
         const count = countFor(wingSlug);
