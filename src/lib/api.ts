@@ -6,9 +6,9 @@
 const MEMPALACE_URL = "/api/palace";
 const MEMOS_URL = "/api/memos";
 
-const SUPABASE_URL = "https://wofklmwbokdjoqlstjmy.supabase.co";
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndvZmtsbXdib2tkam9xbHN0am15Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Mjk4Njg5MywiZXhwIjoyMDg4NTYyODkzfQ.KP7WfK31eJwUCa_-vTjFsCDO400OMFKhN_m8FtCvqL4";
+// Supabase calls go through /api/supabase/ serverless proxy.
+// The service_role key lives ONLY in Vercel env vars, never in the browser.
+const SUPABASE_PROXY = "/api/supabase";
 
 export async function fetchPalaceStatus() {
   try {
@@ -72,9 +72,7 @@ export async function getMemOSAll(user_id: string) {
 }
 
 async function supabase(table: string, params: string) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
-    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-  });
+  const r = await fetch(`${SUPABASE_PROXY}/${table}?${params}`);
   return await r.json();
 }
 

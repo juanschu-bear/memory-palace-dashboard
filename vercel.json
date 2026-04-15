@@ -2,6 +2,6 @@
   "rewrites": [
     { "source": "/api/palace/:path*", "destination": "https://mempalace.onioko.com/:path*" },
     { "source": "/api/memos/:path*", "destination": "https://memos-local.onioko.com/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
