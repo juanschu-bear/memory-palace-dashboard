@@ -72,7 +72,7 @@ export async function getMemOSAll(user_id: string) {
 }
 
 async function supabase(table: string, params: string) {
-  const r = await fetch(`${SUPABASE_PROXY}/${table}?${params}`);
+  const r = await fetch(`${SUPABASE_PROXY}?table=${table}&${params}`);
   return await r.json();
 }
 
