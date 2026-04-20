@@ -849,15 +849,23 @@ export default function GraphView() {
   const onboardingSteps = [
     {
       title: "Welcome to the Memory Graph",
-      body: "Each node is a memory, avatar, or person. Click any node to explore what it knows.",
+      body:
+        "Three kinds of nodes: avatars (the personas), people (humans they speak with), and memories (what was remembered). Click any node to explore what it knows.",
     },
     {
-      title: "Use the filters above to focus",
-      body: "Narrow the view by avatar, person, or topic — unmatched nodes fade away without disappearing.",
+      title: "Edges tell stories",
+      body:
+        "Lines aren't just decoration. Hover any edge to see why two things are linked — said by, said to, an authored relationship between two memories, or a shared theme.",
     },
     {
-      title: "Connections show shared topics",
-      body: "Lines between memories mean they share two or more topics. Follow them to find clusters of meaning.",
+      title: "Orange dashed edges are cross-context",
+      body:
+        "When a memory links to one belonging to a different person or a different avatar, the edge turns orange and dashed. These are rare and the most interesting — follow them to find unexpected bridges.",
+    },
+    {
+      title: "Drag to pin, double-click to release",
+      body:
+        "Hold and drag any node to pin it where you drop it (a small diamond marks pinned nodes). Double-click a pinned node to release it back to the live layout. Scroll to zoom toward the cursor.",
     },
   ];
 
@@ -1149,9 +1157,44 @@ export default function GraphView() {
         }
         .graph-legend .edge-line {
           display: inline-block;
-          width: 20px; height: 1px;
-          background: rgba(180, 220, 255, 0.6);
-          box-shadow: 0 0 4px rgba(180, 220, 255, 0.7);
+          width: 24px; height: 0;
+          flex-shrink: 0;
+        }
+        .graph-legend .edge-line-structural {
+          border-top: 1px solid rgba(200, 235, 255, 0.55);
+          box-shadow: 0 0 4px rgba(180, 220, 255, 0.4);
+        }
+        .graph-legend .edge-line-semantic {
+          border-top: 1.5px solid rgba(127, 119, 221, 0.85);
+          box-shadow: 0 0 4px rgba(127, 119, 221, 0.55);
+        }
+        .graph-legend .edge-line-cross {
+          border-top: 1.6px dashed rgba(239, 159, 39, 0.95);
+          box-shadow: 0 0 5px rgba(239, 159, 39, 0.6);
+        }
+        .graph-legend .edge-line-thematic {
+          border-top: 1px solid rgba(150, 150, 150, 0.55);
+        }
+        .graph-legend .pin-glyph {
+          display: inline-block;
+          width: 8px; height: 8px;
+          flex-shrink: 0;
+          background: rgba(255, 210, 120, 0.95);
+          transform: rotate(45deg);
+          box-shadow: 0 0 6px rgba(255, 210, 120, 0.55);
+        }
+        .graph-legend .leg-toggle-hint {
+          display: inline-flex;
+          width: 22px; height: 14px;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          font-size: 0.55rem;
+          letter-spacing: 0.04em;
+          background: rgba(63, 224, 255, 0.18);
+          border: 1px solid rgba(63, 224, 255, 0.45);
+          color: rgba(232, 240, 255, 0.92);
+          border-radius: 4px;
         }
         .graph-legend .section-divider {
           border-top: 1px solid rgba(120, 180, 220, 0.12);
@@ -1675,10 +1718,32 @@ export default function GraphView() {
           <span>Memory — label on hover</span>
         </div>
         <div className="section-divider" />
-        <h4>Edges</h4>
+        <h4>Edge layers</h4>
         <div className="kind-row">
-          <span className="edge-line" />
-          <span>Shared topics / connections</span>
+          <span className="edge-line edge-line-structural" />
+          <span>Structural — said by / said to</span>
+        </div>
+        <div className="kind-row">
+          <span className="edge-line edge-line-semantic" />
+          <span>Semantic — authored relationship</span>
+        </div>
+        <div className="kind-row">
+          <span className="edge-line edge-line-cross" />
+          <span>Cross-context (rare, valuable)</span>
+        </div>
+        <div className="kind-row">
+          <span className="edge-line edge-line-thematic" />
+          <span>Thematic — shared topics</span>
+        </div>
+        <div className="section-divider" />
+        <h4>Interaction</h4>
+        <div className="kind-row">
+          <span className="pin-glyph" />
+          <span>Pinned (drag to set, dbl-click to release)</span>
+        </div>
+        <div className="kind-row">
+          <span className="leg-toggle-hint">Aa</span>
+          <span>Edge labels: filter bar toggle</span>
         </div>
         <div className="section-divider" />
         <h4>Avatars</h4>
