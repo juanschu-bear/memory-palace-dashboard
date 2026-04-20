@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { fetchMemories, fetchOwners } from "@/lib/api";
 import { findAvatar, memoriesForAvatar, memoryMatchesRoom, memoryTopics } from "@/lib/avatars";
+import { attachInternalLinkNav } from "@/lib/clientLinks";
 
 const HTML = `<!-- Room atmosphere -->
 <div class="room-bg"></div>
@@ -54,6 +55,7 @@ function labelize(s: string){
 
 export default function RoomPage(){
   const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
   const params = useParams();
   const slug=(params.slug as string)||'trace-flores';
   const room=(params.room as string)||'business';
@@ -73,6 +75,7 @@ export default function RoomPage(){
     const root=ref.current; if(!root) return;
     const section=root.querySelector('.drawers-section') as HTMLElement | null;
     if(section){ section.innerHTML='<div class="drawer-loading">Opening drawers…</div>'; }
+    const detachLinks = attachInternalLinkNav(root, navigate);
 
     (async()=>{
       let memories: any[] = [], owners: any[] = [];
@@ -117,6 +120,7 @@ export default function RoomPage(){
         section.appendChild(entry);
       });
     })();
-  },[slug, room, roomLabel, profile.name]);
+    return () => { detachLinks(); };
+  },[slug, room, roomLabel, profile.name, navigate]);
   return <div ref={ref} dangerouslySetInnerHTML={{__html:html}} />;
 }

@@ -16,14 +16,22 @@ export default function WingsPage() {
   const [rawContacts, setRawContacts] = useState<Contact[]>([]);
   const [memories, setMemories] = useState<any[]>([]);
   const [owners, setOwners] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
-      const [cs, ms, os] = await Promise.all([fetchContacts(), fetchMemories(), fetchOwners()]);
-      if (Array.isArray(cs)) setRawContacts(cs);
-      if (Array.isArray(ms)) setMemories(ms);
-      if (Array.isArray(os)) setOwners(os);
-    })().catch(() => {});
+      try {
+        const [cs, ms, os] = await Promise.all([fetchContacts(), fetchMemories(), fetchOwners()]);
+        if (cancelled) return;
+        if (Array.isArray(cs)) setRawContacts(cs);
+        if (Array.isArray(ms)) setMemories(ms);
+        if (Array.isArray(os)) setOwners(os);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // Deduplicate contacts by display_name (global) to avoid listing the same
@@ -63,7 +71,9 @@ export default function WingsPage() {
           </p>
         </div>
 
-        {contacts.length === 0 ? (
+        {loading ? (
+          <p className="users-empty">Loading contacts…</p>
+        ) : contacts.length === 0 ? (
           <p className="users-empty">No contacts found yet.</p>
         ) : (
           <div className="users-grid">

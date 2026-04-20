@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import { fetchMemories, fetchOwners, readDiary } from "@/lib/api";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { findAvatar, memoriesForAvatar, memoryMatchesRoom } from "@/lib/avatars";
+import { attachInternalLinkNav } from "@/lib/clientLinks";
 
 const BASE_HTML = `<div class="corridor-bg"><div class="ceiling"></div><div class="floor"></div><div class="wall-left"></div><div class="wall-right"></div><div class="vanishing-glow"></div></div>
 <div class="light-ray ray-1"></div><div class="light-ray ray-2"></div><div class="light-ray ray-3"></div><div class="light-ray ray-4"></div>
@@ -43,6 +44,7 @@ const BASE_HTML = `<div class="corridor-bg"><div class="ceiling"></div><div clas
 
 export default function WingPage() {
   const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
   const { slug = "trace-flores" } = useParams();
   const profile = findAvatar(slug);
   const html = useMemo(
@@ -61,14 +63,27 @@ export default function WingPage() {
     if (!root) return;
 
     const clickables = Array.from(root.querySelectorAll<HTMLElement>(".room-door[data-route]"));
-    const handlers = clickables.map((node) => {
-      const handler = () => {
-        const route = node.dataset.route;
-        if (route) window.location.assign(route);
-      };
-      node.addEventListener("click", handler);
-      return { node, handler };
+    clickables.forEach((node) => {
+      node.setAttribute("role", "link");
+      node.setAttribute("tabindex", "0");
     });
+    const handlers = clickables.map((node) => {
+      const go = () => {
+        const route = node.dataset.route;
+        if (route) navigate(route);
+      };
+      const onClick = () => go();
+      const onKey = (ev: KeyboardEvent) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          go();
+        }
+      };
+      node.addEventListener("click", onClick);
+      node.addEventListener("keydown", onKey);
+      return { node, onClick, onKey };
+    });
+    const detachLinks = attachInternalLinkNav(root, navigate);
 
     (async () => {
       const [memories, owners, diary] = await Promise.all([
@@ -117,9 +132,13 @@ export default function WingPage() {
 
     return () => {
       document.body.classList.remove("wing-page");
-      handlers.forEach(({ node, handler }) => node.removeEventListener("click", handler));
+      handlers.forEach(({ node, onClick, onKey }) => {
+        node.removeEventListener("click", onClick);
+        node.removeEventListener("keydown", onKey);
+      });
+      detachLinks();
     };
-  }, [slug]);
+  }, [slug, navigate]);
 
   return <div ref={ref} dangerouslySetInnerHTML={{ __html: html }} />;
 }

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { readDiary } from "@/lib/api";
 import { findAvatar } from "@/lib/avatars";
+import { attachInternalLinkNav } from "@/lib/clientLinks";
 
 const HTML = `<!-- Breadcrumb -->
 <nav class="breadcrumb">
@@ -42,6 +43,7 @@ function escapeHtml(s: string){
 
 export default function DiaryPage(){
   const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
   const params = useParams();
   const slug = (params.slug as string) || "trace-flores";
   const profile = findAvatar(slug);
@@ -59,6 +61,7 @@ export default function DiaryPage(){
     const entries = root.querySelector('.entries') as HTMLElement | null;
     const tagFilter = root.querySelector('.tag-filter') as HTMLElement | null;
     const meta = root.querySelector('.diary-meta');
+    const detachLinks = attachInternalLinkNav(root, navigate);
 
     (async()=>{
       let d: any = null;
@@ -141,7 +144,10 @@ export default function DiaryPage(){
         });
       }
     })();
-    return ()=>{ document.body.classList.remove("light-diary"); };
-  },[slug, profile.name, profile.initials]);
+    return ()=>{
+      document.body.classList.remove("light-diary");
+      detachLinks();
+    };
+  },[slug, profile.name, profile.initials, navigate]);
   return <div ref={ref} dangerouslySetInnerHTML={{__html:html}} />;
 }

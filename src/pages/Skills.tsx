@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { fetchMemories, fetchOwners } from "@/lib/api";
 import { findAvatar, memoriesForAvatar, memoryTopics } from "@/lib/avatars";
+import { attachInternalLinkNav } from "@/lib/clientLinks";
 
 const HTML = `<nav class="breadcrumb">
   <a href="/skills">Skills</a>
@@ -155,25 +156,7 @@ const HTML = `<nav class="breadcrumb">
 
 <div class="page-footer">
   <p>"Skills are not taught. They are earned through reflection."</p>
-</div>
-
-<script>
-// Generate background star field
-const sf = document.getElementById('starfield');
-for (let i = 0; i < 60; i++) {
-  const dot = document.createElement('div');
-  dot.style.cssText = \`
-    position: absolute;
-    width: \${Math.random() * 2 + 0.5}px;
-    height: \${Math.random() * 2 + 0.5}px;
-    background: rgba(232, 200, 150, \${Math.random() * 0.3 + 0.05});
-    border-radius: 50%;
-    left: \${Math.random() * 100}%;
-    top: \${Math.random() * 100}%;
-  \`;
-  sf.appendChild(dot);
-}
-</script>`;
+</div>`;
 
 function escapeHtml(s: string){
   return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -185,6 +168,7 @@ function humanize(s: string){
 
 export default function SkillsPage(){
   const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
   const params = useParams();
   const slug = (params.slug as string) || "trace-flores";
   const profile = findAvatar(slug);
@@ -204,6 +188,27 @@ export default function SkillsPage(){
     const constellation = root.querySelector('.constellation-section svg') as SVGSVGElement | null;
     // Clear placeholder skill cards immediately so stale Trace data never leaks.
     if (cards) cards.innerHTML = `<p class="skills-detail-title">Skill inventory</p><div class="skills-loading">Gathering reflections…</div>`;
+
+    // <script> tags inside dangerouslySetInnerHTML are inert, so populate the
+    // background star field here.
+    const starfield = root.querySelector<HTMLDivElement>('#starfield');
+    if (starfield && starfield.childElementCount === 0) {
+      for (let i = 0; i < 60; i++) {
+        const dot = document.createElement('div');
+        Object.assign(dot.style, {
+          position: 'absolute',
+          width: `${Math.random() * 2 + 0.5}px`,
+          height: `${Math.random() * 2 + 0.5}px`,
+          background: `rgba(232, 200, 150, ${Math.random() * 0.3 + 0.05})`,
+          borderRadius: '50%',
+          left: `${Math.random() * 100}%`,
+          top: `${Math.random() * 100}%`,
+        });
+        starfield.appendChild(dot);
+      }
+    }
+
+    const detachLinks = attachInternalLinkNav(root, navigate);
 
     (async()=>{
       let memories: any[] = [], owners: any[] = [];
@@ -292,6 +297,7 @@ export default function SkillsPage(){
         });
       }
     })();
-  },[slug, profile.name]);
+    return () => { detachLinks(); };
+  },[slug, profile.name, navigate]);
   return <div ref={ref} dangerouslySetInnerHTML={{__html:html}} />;
 }
