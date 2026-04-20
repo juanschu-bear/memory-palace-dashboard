@@ -1,9 +1,11 @@
 import { useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { fetchContacts, fetchOwners, fetchConversations, fetchConversationMemory, fetchMemories } from "@/lib/api";
 import { memoryTopics } from "@/lib/avatars";
+import { attachInternalLinkNav } from "@/lib/clientLinks";
 
 const HTML = `<nav class="breadcrumb">
-  <a>Palace</a>
+  <a href="/">Palace</a>
   <span class="sep">/</span>
   <span class="current">Contacts</span>
 </nav>
@@ -13,7 +15,7 @@ const HTML = `<nav class="breadcrumb">
   <section class="page-header">
     <h1>Contacts</h1>
     <p class="subtitle">Everyone who has stepped inside the palace.</p>
-    <p class="meta"><span class="contacts-live-count">0</span> contacts &middot; <span class="sessions-live-count">0</span> total sessions &middot; 49 memories stored</p>
+    <p class="meta"><span class="contacts-live-count">0</span> contacts &middot; <span class="sessions-live-count">0</span> total sessions &middot; <span class="memories-live-count">0</span> memories stored</p>
   </section>
 
   <div class="divider"></div>
@@ -71,9 +73,11 @@ function mergeContacts(rows: any[]): MergedContact[] {
 
 export default function ContactsPage(){
   const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
   useEffect(()=>{
     document.body.classList.add("light-contacts");
     const root=ref.current; if(!root) return;
+    const detachLinks = attachInternalLinkNav(root, navigate);
     (async()=>{
       let rawContacts: any[] = [], owners: any[] = [], conversations: any[] = [], convMemos: any[] = [], memories: any[] = [];
       try {
@@ -92,8 +96,10 @@ export default function ContactsPage(){
       const list = root.querySelector('.contacts-list');
       const cCount = root.querySelector('.contacts-live-count');
       const sCount = root.querySelector('.sessions-live-count');
+      const mCount = root.querySelector('.memories-live-count');
       if (cCount) cCount.textContent = String(contacts.length);
       if (sCount) sCount.textContent = String(Array.isArray(conversations) ? conversations.length : 0);
+      if (mCount) mCount.textContent = String(Array.isArray(memories) ? memories.length : 0);
       if (!list) return;
       list.innerHTML = "";
       if (contacts.length === 0) {
@@ -161,7 +167,10 @@ export default function ContactsPage(){
         list.appendChild(node);
       });
     })();
-    return ()=>{ document.body.classList.remove("light-contacts"); };
-  },[]);
+    return ()=>{
+      document.body.classList.remove("light-contacts");
+      detachLinks();
+    };
+  },[navigate]);
   return <div ref={ref} dangerouslySetInnerHTML={{__html:HTML}} />;
 }
