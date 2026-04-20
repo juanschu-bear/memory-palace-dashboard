@@ -444,7 +444,8 @@ export default function GraphView() {
   }, [selected, selectedNeighbors, nodeById]);
 
   // Person panel pulls from the pre-computed aggregates on the node itself,
-  // so sessions/voice/text counts stay consistent with the data layer.
+  // so video-call / voice-note / chat-message / memory counts stay
+  // consistent with the data layer.
   const personPanel = useMemo(() => {
     if (!selected || selected.kind !== "person") return null;
     const avatars = (selected.avatarSlugs ?? [])
@@ -467,9 +468,9 @@ export default function GraphView() {
       .slice(0, 8)
       .map(([k, c]) => ({ topic: topicCasing.get(k) ?? k, count: c }));
     return {
-      sessionCount: selected.sessionCount ?? 0,
-      voiceMessageCount: selected.voiceMessageCount ?? 0,
-      textMessageCount: selected.textMessageCount ?? 0,
+      videoCallCount: selected.videoCallCount ?? 0,
+      voiceNoteCount: selected.voiceNoteCount ?? 0,
+      chatMessageCount: selected.chatMessageCount ?? 0,
       memoryCount: selected.memoryCount ?? 0,
       lastActiveAt: selected.lastActiveAt ?? "",
       avatars,
@@ -1315,19 +1316,19 @@ export default function GraphView() {
                 <>
                   <section>
                     <div className="stat-grid cols-4">
-                      <div className="stat">
-                        <div className="num">{personPanel.sessionCount}</div>
-                        <div className="lbl">Sessions</div>
+                      <div className="stat" title="Distinct ANIMA Connect video calls (call-anima-api-* sources)">
+                        <div className="num">{personPanel.videoCallCount}</div>
+                        <div className="lbl">Video Calls</div>
                       </div>
-                      <div className="stat">
-                        <div className="num">{personPanel.voiceMessageCount}</div>
-                        <div className="lbl">Voice</div>
+                      <div className="stat" title="Memory records derived from voice notes (voice-message / voice-message-poll sources)">
+                        <div className="num">{personPanel.voiceNoteCount}</div>
+                        <div className="lbl">Voice Notes</div>
                       </div>
-                      <div className="stat">
-                        <div className="num">{personPanel.textMessageCount}</div>
-                        <div className="lbl">Text</div>
+                      <div className="stat" title="Chat messages the person typed (sender=contact, type=text in wa_messages)">
+                        <div className="num">{personPanel.chatMessageCount}</div>
+                        <div className="lbl">Chat Msgs</div>
                       </div>
-                      <div className="stat">
+                      <div className="stat" title="All memories attributed to this person across aggregated contact rows">
                         <div className="num">{personPanel.memoryCount}</div>
                         <div className="lbl">Memories</div>
                       </div>

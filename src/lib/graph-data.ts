@@ -23,6 +23,7 @@ import {
   fetchMemoriesAll,
   fetchMessages,
   fetchContactsAll,
+  fetchConversations,
 } from "@/lib/api";
 import { AVATARS, memoryTopics } from "@/lib/avatars";
 
@@ -41,9 +42,14 @@ export interface GraphNode {
   degree: number;
   // Person-specific aggregates (undefined on avatar/memory nodes).
   lastActiveAt?: string;
-  sessionCount?: number;
-  voiceMessageCount?: number;
-  textMessageCount?: number;
+  // Distinct video calls: unique `call-anima-api-<hex>` wa_memories.source.
+  videoCallCount?: number;
+  // Voice notes: wa_memories rows with source in voice-message* (polled
+  // or summarized voice-note memories, not raw audio count).
+  voiceNoteCount?: number;
+  // User-typed chat: wa_messages where sender='contact' AND type='text'.
+  chatMessageCount?: number;
+  // All memory rows attributed to this person across aggregated contacts.
   memoryCount?: number;
   avatarSlugs?: string[];
   contactIds?: string[];
@@ -200,8 +206,15 @@ interface PersonAgg {
   lastActiveAt: string;
   memoryIds: Set<string>;
   sessionSources: Set<string>;
-  voiceCount: number;
-  textCount: number;
+  // Voice notes logged as memory records (source in voice-message*).
+  // Not the same as the raw count of voice messages in wa_messages —
+  // a single voice note can produce multiple poll/summary memories.
+  voiceNoteCount: number;
+  // User-typed chat messages: wa_messages where sender='contact' AND
+  // type='text'. Excludes voice-note audio messages (those live under
+  // voiceNoteCount) and avatar-side [Call summary] / [TTS ERROR]
+  // system events (we never count those toward the person).
+  chatMessageCount: number;
   avatarSlugs: Set<string>;
   topics: Map<string, number>;
   topicCasing: Map<string, string>;
@@ -218,8 +231,8 @@ function newPersonAgg(key: string, email: string): PersonAgg {
     lastActiveAt: "",
     memoryIds: new Set(),
     sessionSources: new Set(),
-    voiceCount: 0,
-    textCount: 0,
+    voiceNoteCount: 0,
+    chatMessageCount: 0,
     avatarSlugs: new Set(),
     topics: new Map(),
     topicCasing: new Map(),
@@ -242,16 +255,29 @@ function personDisplayName(agg: PersonAgg): string {
 }
 
 export async function loadGraphData(): Promise<GraphDataset> {
-  const [ownersRaw, contactsRaw, memoriesRaw, messagesRaw] = await Promise.all([
-    fetchOwners(),
-    fetchContactsAll(),
-    fetchMemoriesAll(),
-    fetchMessages(),
-  ]);
+  const [ownersRaw, contactsRaw, memoriesRaw, messagesRaw, conversationsRaw] =
+    await Promise.all([
+      fetchOwners(),
+      fetchContactsAll(),
+      fetchMemoriesAll(),
+      fetchMessages(),
+      fetchConversations(),
+    ]);
   const owners = Array.isArray(ownersRaw) ? ownersRaw : [];
   const contacts = Array.isArray(contactsRaw) ? contactsRaw : [];
   const memories = Array.isArray(memoriesRaw) ? memoriesRaw : [];
   const messages = Array.isArray(messagesRaw) ? messagesRaw : [];
+  const conversations = Array.isArray(conversationsRaw) ? conversationsRaw : [];
+
+  // wa_messages does not carry contact_id directly — it has
+  // conversation_id, and wa_conversations.contact_id is the join path.
+  // Build the map once so the message loop is O(n).
+  const contactIdByConversationId = new Map<string, string>();
+  for (const conv of conversations) {
+    const convId = conv?.id ? String(conv.id) : "";
+    const cid = conv?.contact_id ? String(conv.contact_id) : "";
+    if (convId && cid) contactIdByConversationId.set(convId, cid);
+  }
 
   // owner_id → avatar slug, derived from wa_owners.display_name.
   const slugByOwnerId = new Map<string, string>();
@@ -324,7 +350,7 @@ export async function loadGraphData(): Promise<GraphDataset> {
     const agg = personByKey.get(key)!;
     agg.memoryIds.add(memId);
     if (SESSION_PATTERN.test(rawSource)) agg.sessionSources.add(rawSource);
-    if (VOICE_SOURCES.has(rawSource)) agg.voiceCount += 1;
+    if (VOICE_SOURCES.has(rawSource)) agg.voiceNoteCount += 1;
     const slug = avatarSlugForMemory(memory);
     if (slug) agg.avatarSlugs.add(slug);
     for (const topic of memoryTopics(memory)) {
@@ -338,15 +364,26 @@ export async function loadGraphData(): Promise<GraphDataset> {
     if (created && created > agg.lastActiveAt) agg.lastActiveAt = created;
   }
 
-  // wa_messages → per-person text message count.
+  // wa_messages → per-person user-typed chat count. We only count rows
+  // the CONTACT actually typed: sender='contact' AND type='text'.
+  //   - Voice notes (type='voice') belong under voiceNoteCount.
+  //   - Avatar-side rows include [Call summary] / [TTS ERROR] system
+  //     events and TTS replies, none of which are the person's typed
+  //     messages, so we skip them entirely here.
+  // contact_id comes from wa_conversations; wa_messages itself does
+  // not carry a contact_id column, so without the join this loop was
+  // a no-op before.
   for (const msg of messages) {
-    const contactId = msg?.contact_id ? String(msg.contact_id) : "";
+    const convId = msg?.conversation_id ? String(msg.conversation_id) : "";
+    const contactId = convId ? contactIdByConversationId.get(convId) : undefined;
     const key = contactId ? keyByContactId.get(contactId) : undefined;
     if (!key) continue;
     const agg = personByKey.get(key)!;
-    agg.textCount += 1;
     const created = String(msg?.created_at ?? msg?.sent_at ?? "");
     if (created && created > agg.lastActiveAt) agg.lastActiveAt = created;
+    if (msg?.sender === "contact" && msg?.type === "text") {
+      agg.chatMessageCount += 1;
+    }
   }
 
   // Avatar nodes (all 7).
@@ -389,9 +426,9 @@ export async function loadGraphData(): Promise<GraphDataset> {
       },
       degree: 0,
       lastActiveAt: agg.lastActiveAt,
-      sessionCount: agg.sessionSources.size,
-      voiceMessageCount: agg.voiceCount,
-      textMessageCount: agg.textCount,
+      videoCallCount: agg.sessionSources.size,
+      voiceNoteCount: agg.voiceNoteCount,
+      chatMessageCount: agg.chatMessageCount,
       memoryCount: agg.memoryIds.size,
       avatarSlugs: Array.from(agg.avatarSlugs),
       contactIds: Array.from(agg.contactIds),
