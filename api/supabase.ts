@@ -7,6 +7,7 @@ const ALLOWED_TABLES = new Set([
   "wa_owners",
   "wa_conversations",
   "wa_memories",
+  "wa_messages",
   "wa_conversation_memory",
   "wa_perception_logs",
 ]);
