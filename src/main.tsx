@@ -16,6 +16,7 @@ import TunnelsSelectPage from "./pages/TunnelsSelect";
 import ContactsPage from "./pages/Contacts";
 import SkillsPage from "./pages/Skills";
 import SkillsSelectPage from "./pages/SkillsSelect";
+import GraphView from "./pages/GraphView";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -35,6 +36,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/skills" element={<SkillsSelectPage />} />
           <Route path="/skills/:slug" element={<SkillsPage />} />
+          <Route path="/graph" element={<GraphView />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

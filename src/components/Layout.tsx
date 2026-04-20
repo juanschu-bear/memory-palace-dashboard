@@ -8,6 +8,7 @@ const links = [
   { to: "/tunnels", label: "Tunnels" },
   { to: "/contacts", label: "Contacts" },
   { to: "/skills", label: "Skills" },
+  { to: "/graph", label: "Graph" },
 ];
 
 export default function AppLayout() {
