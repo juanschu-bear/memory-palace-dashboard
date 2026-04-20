@@ -393,12 +393,25 @@ export default function GraphView() {
       (hoveredId && neighborMap.get(hoveredId)?.has(data.id)) ||
       (selected?.id && neighborMap.get(selected.id)?.has(data.id));
 
-    const baseRadius =
-      data.kind === "avatar"
-        ? 13
-        : data.kind === "person"
-          ? 4.5
-          : 2 + Math.min(data.degree, 8) * 0.55;
+    // Detail-on-zoom radii. Avatars stay 13 at every zoom (they are the
+    // anchors of the constellation); person and memory dots grow as
+    // the user zooms in, so the "tiny dots from far away" view doesn't
+    // become "tiny dots up close" too.
+    let baseRadius: number;
+    if (data.kind === "avatar") {
+      baseRadius = 13;
+    } else if (data.kind === "person") {
+      // Below 1x: 3px so people read as small green pinpricks. Above
+      // 1x: keep the original 4.5px which already feels right.
+      baseRadius = scale < 1 ? 3 : 4.5;
+    } else {
+      // Memory dot ladder: 1.5 / 2.5 / 4 across the zoom bands. We
+      // still add a tiny degree-based bonus so high-connectivity
+      // memories stay visually heavier than singletons.
+      const degreeBonus = Math.min(data.degree, 8) * 0.18;
+      const z = scale < 1 ? 1.5 : scale < 2 ? 2.5 : 4;
+      baseRadius = z + degreeBonus;
+    }
     const radius = isHovered || isSelected ? baseRadius * 1.6 : baseRadius;
 
     const alpha = dim(data.id);
@@ -443,10 +456,18 @@ export default function GraphView() {
       ctx.stroke();
     }
 
-    // Label rules: avatars always visible; people and memories only on hover/select.
-    const labelVisible =
-      data.kind === "avatar" ||
-      ((data.kind === "person" || data.kind === "memory") && (isHovered || isSelected));
+    // Detail-on-zoom label rules:
+    //   <1x       avatar labels only
+    //   1x – 2x   + person labels on hover/select
+    //   2x – 4x   + memory labels on hover/select
+    //   >4x       memory topic chips inline (if topics ≤ 3)
+    let labelVisible = false;
+    if (data.kind === "avatar") labelVisible = true;
+    else if (data.kind === "person") {
+      labelVisible = isHovered || isSelected || scale >= 1;
+    } else {
+      labelVisible = (isHovered || isSelected) && scale >= 2;
+    }
     if (labelVisible) {
       const fontSize = (data.kind === "avatar" ? 11 : 10) / scale;
       ctx.font = `${fontSize}px "DM Sans", sans-serif`;
@@ -455,6 +476,51 @@ export default function GraphView() {
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.fillText(data.label, x, y + radius + 4 / scale);
+    }
+
+    // Above 4x zoom, render up to 3 topic chips inline next to the
+    // memory node so the user can scan topical clusters without
+    // hovering each dot. Memories with more than 3 topics are skipped
+    // (would crowd the canvas); hover the node to see all topics.
+    if (
+      data.kind === "memory" &&
+      scale > 4 &&
+      data.topics.length > 0 &&
+      data.topics.length <= 3
+    ) {
+      const fontPx = 8 / scale;
+      ctx.font = `${fontPx}px "DM Sans", sans-serif`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      const padX = 4 / scale;
+      const padY = 1.5 / scale;
+      const gap = 3 / scale;
+      let cx = x + radius + 5 / scale;
+      const cy = y;
+      for (const topic of data.topics) {
+        const text = truncate(topic, 28);
+        const w = ctx.measureText(text).width + padX * 2;
+        const h = fontPx + padY * 2;
+        ctx.fillStyle = "rgba(63, 224, 255, 0.18)";
+        ctx.strokeStyle = "rgba(63, 224, 255, 0.35)";
+        ctx.lineWidth = 0.5 / scale;
+        ctx.beginPath();
+        const r = 2 / scale;
+        const rr = (
+          ctx as unknown as {
+            roundRect?: (
+              x: number, y: number, w: number, h: number, r: number,
+            ) => void;
+          }
+        ).roundRect;
+        if (rr) rr.call(ctx, cx, cy - h / 2, w, h, r);
+        else ctx.rect(cx, cy - h / 2, w, h);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "rgba(220, 240, 255, 0.95)";
+        ctx.fillText(text, cx + padX, cy);
+        cx += w + gap;
+      }
     }
 
     // Pin indicator: small filled diamond at the top-right of any node
