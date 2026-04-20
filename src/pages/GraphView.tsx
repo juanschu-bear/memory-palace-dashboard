@@ -22,6 +22,42 @@ type ForceLink = LinkObject<GraphNode, GraphEdge>;
 
 const NAV_HEIGHT = 56;
 const ONBOARD_KEY = "graph-onboarded-v1";
+const EDGE_LABEL_MODE_KEY = "graph-edge-labels-v1";
+
+type EdgeLabelMode = "always" | "on-zoom";
+const DEFAULT_EDGE_LABEL_MODE: EdgeLabelMode = "on-zoom";
+// "Reveal on zoom" thresholds. Under MIN, labels are off. Between MIN
+// and MAX, labels fade in linearly. Above MAX, they are fully opaque.
+const EDGE_LABEL_ZOOM_MIN = 1.5;
+const EDGE_LABEL_ZOOM_MAX = 2.5;
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1) + "…";
+}
+
+function edgeLabelText(link: {
+  kind?: string;
+  relationship?: string;
+  sharedTopics?: string[];
+  crossContext?: boolean;
+}): string | null {
+  switch (link.kind) {
+    case "memory-avatar":
+      return "said by";
+    case "memory-person":
+      return "said to";
+    case "memory-memory-semantic":
+      return link.relationship ? link.relationship : null;
+    case "memory-memory-thematic": {
+      const t = link.sharedTopics ?? [];
+      if (!t.length) return null;
+      return `shared themes: ${t.slice(0, 3).join(", ")}`;
+    }
+    default:
+      return null;
+  }
+}
 
 function hexToRgb(hex: string): [number, number, number] {
   const clean = hex.replace("#", "");
@@ -76,6 +112,38 @@ export default function GraphView() {
   });
   const [onboardStep, setOnboardStep] = useState(0);
 
+  const [edgeLabelMode, setEdgeLabelMode] = useState<EdgeLabelMode>(() => {
+    if (typeof localStorage === "undefined") return DEFAULT_EDGE_LABEL_MODE;
+    const saved = localStorage.getItem(EDGE_LABEL_MODE_KEY);
+    return saved === "always" || saved === "on-zoom"
+      ? (saved as EdgeLabelMode)
+      : DEFAULT_EDGE_LABEL_MODE;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(EDGE_LABEL_MODE_KEY, edgeLabelMode);
+    } catch {
+      /* ignore */
+    }
+  }, [edgeLabelMode]);
+  // Current canvas zoom (force-graph's scale k). Used by label fade-in
+  // in "on-zoom" mode and by detail-on-zoom node rendering.
+  const [zoomLevel, setZoomLevel] = useState(1);
+
+  // Pinned nodes (fx/fy set on the simulation node). We store the id
+  // set here too so React can re-render the pin indicator when the
+  // underlying sim object mutates. Double-click on a pinned node
+  // releases it back to the live simulation.
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => new Set());
+  const lastClickRef = useRef<{ id: string; at: number } | null>(null);
+  const DOUBLE_CLICK_MS = 300;
+
+  // Active-filter info card visibility. We track the signature of the
+  // last dismissed filter combination so the card stays hidden for
+  // *that* combination but pops back up when the user changes any
+  // filter — the spec calls it the "why am I seeing this" overlay.
+  const [dismissedFilterSig, setDismissedFilterSig] = useState<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     loadGraphData()
@@ -99,14 +167,18 @@ export default function GraphView() {
   }, []);
 
   useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
     const measure = () => {
-      const el = containerRef.current;
-      if (!el) return;
       setSize({ w: el.clientWidth, h: el.clientHeight });
     };
     measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    // ResizeObserver fires synchronously on layout changes (zoom,
+    // sidebar open/close, window resize, parent style changes), where
+    // window.resize alone misses many of those.
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   const graphData = useMemo(() => {
@@ -118,6 +190,9 @@ export default function GraphView() {
         target: e.target,
         kind: e.kind,
         strength: e.strength,
+        relationship: e.relationship,
+        crossContext: e.crossContext,
+        sharedTopics: e.sharedTopics,
       })) as ForceLink[],
     };
   }, [dataset]);
@@ -225,14 +300,16 @@ export default function GraphView() {
   useEffect(() => {
     if (!dataset || !fgRef.current) return;
     const fg = fgRef.current;
-    // Spread clusters further so the bottom-right clump flattens out and
-    // the top-left of the viewport gets some density.
+    // Re-tuned for the layered edge model + full-viewport canvas: a
+    // little less repulsive charge, a longer rest length on links so
+    // structural anchors breathe, and a softer center so the bottom
+    // clump flattens out without forcing every node onto the centroid.
     const charge = fg.d3Force("charge") as unknown as { strength?: (v: number) => unknown };
-    charge?.strength?.(-260);
+    charge?.strength?.(-280);
     const link = fg.d3Force("link") as unknown as { distance?: (v: number) => unknown };
-    link?.distance?.(60);
+    link?.distance?.(70);
     const center = fg.d3Force("center") as unknown as { strength?: (v: number) => unknown };
-    center?.strength?.(0.05);
+    center?.strength?.(0.04);
 
     // Gentle breathing: wander force adds tiny velocity noise each tick so
     // the simulation never fully settles. Avatars drift slightly more to
@@ -255,6 +332,46 @@ export default function GraphView() {
     })();
     (fg.d3Force as unknown as (name: string, fn: unknown) => unknown)("wander", wander);
 
+    // Boundary force: nodes that drift more than BOUNDARY_RADIUS away
+    // from the live centroid get a small linear pull-back each tick.
+    // Soft, not a hard wall — outliers can still temporarily wander
+    // beyond the radius, they just don't escape forever (which is
+    // exactly the "behavioral_analysis floating off-screen" failure
+    // mode the spec calls out).
+    const BOUNDARY_RADIUS = 600;
+    const BOUNDARY_K = 0.02;
+    const boundary = ((): { (_alpha: number): void; initialize?: (n: any[]) => void } => {
+      let simNodes: any[] = [];
+      const force = (_alpha: number) => {
+        if (simNodes.length === 0) return;
+        let cx = 0;
+        let cy = 0;
+        for (const n of simNodes) {
+          cx += n.x ?? 0;
+          cy += n.y ?? 0;
+        }
+        cx /= simNodes.length;
+        cy /= simNodes.length;
+        for (const n of simNodes) {
+          if (n.fx != null || n.fy != null) continue;
+          const dx = (n.x ?? 0) - cx;
+          const dy = (n.y ?? 0) - cy;
+          const dist = Math.hypot(dx, dy);
+          if (dist <= BOUNDARY_RADIUS) continue;
+          // Linear pull-back proportional to how far past the radius
+          // the node is. Nudge velocity, don't snap position.
+          const over = dist - BOUNDARY_RADIUS;
+          n.vx = (n.vx ?? 0) - (dx / dist) * over * BOUNDARY_K;
+          n.vy = (n.vy ?? 0) - (dy / dist) * over * BOUNDARY_K;
+        }
+      };
+      force.initialize = (nodes: any[]) => {
+        simNodes = nodes;
+      };
+      return force;
+    })();
+    (fg.d3Force as unknown as (name: string, fn: unknown) => unknown)("boundary", boundary);
+
     const t = setTimeout(() => {
       try {
         fg.zoomToFit(600, 80);
@@ -270,6 +387,40 @@ export default function GraphView() {
     return activeIds.has(id) ? 1 : 0.1;
   };
 
+  const filterSig = useMemo(
+    () => `${filterAvatar}|${filterPerson}|${filterTopic}`,
+    [filterAvatar, filterPerson, filterTopic],
+  );
+  const showFilterCard = hasFilter && dismissedFilterSig !== filterSig;
+  const filteredCounts = useMemo(() => {
+    if (!dataset || !activeIds) return null;
+    let memories = 0;
+    let people = 0;
+    for (const n of dataset.nodes) {
+      if (!activeIds.has(n.id)) continue;
+      if (n.kind === "memory") memories += 1;
+      else if (n.kind === "person") people += 1;
+    }
+    let edges = 0;
+    for (const e of dataset.edges) {
+      if (activeIds.has(e.source) && activeIds.has(e.target)) edges += 1;
+    }
+    return { memories, edges, people };
+  }, [dataset, activeIds]);
+  const filterChips = useMemo(() => {
+    const chips: { kind: string; label: string }[] = [];
+    if (filterAvatar) {
+      const a = GRAPH_AVATARS.find((x) => x.slug === filterAvatar);
+      chips.push({ kind: "Avatar", label: a?.name ?? filterAvatar });
+    }
+    if (filterPerson) {
+      const p = nodeById.get(filterPerson);
+      chips.push({ kind: "Person", label: p?.label ?? filterPerson });
+    }
+    if (filterTopic) chips.push({ kind: "Topic", label: filterTopic });
+    return chips;
+  }, [filterAvatar, filterPerson, filterTopic, nodeById]);
+
   const drawNode = (rawNode: ForceNode, ctx: CanvasRenderingContext2D, scale: number) => {
     const node = rawNode as ForceNode & { x?: number; y?: number };
     const x = node.x ?? 0;
@@ -282,12 +433,25 @@ export default function GraphView() {
       (hoveredId && neighborMap.get(hoveredId)?.has(data.id)) ||
       (selected?.id && neighborMap.get(selected.id)?.has(data.id));
 
-    const baseRadius =
-      data.kind === "avatar"
-        ? 13
-        : data.kind === "person"
-          ? 4.5
-          : 2 + Math.min(data.degree, 8) * 0.55;
+    // Detail-on-zoom radii. Avatars stay 13 at every zoom (they are the
+    // anchors of the constellation); person and memory dots grow as
+    // the user zooms in, so the "tiny dots from far away" view doesn't
+    // become "tiny dots up close" too.
+    let baseRadius: number;
+    if (data.kind === "avatar") {
+      baseRadius = 13;
+    } else if (data.kind === "person") {
+      // Below 1x: 3px so people read as small green pinpricks. Above
+      // 1x: keep the original 4.5px which already feels right.
+      baseRadius = scale < 1 ? 3 : 4.5;
+    } else {
+      // Memory dot ladder: 1.5 / 2.5 / 4 across the zoom bands. We
+      // still add a tiny degree-based bonus so high-connectivity
+      // memories stay visually heavier than singletons.
+      const degreeBonus = Math.min(data.degree, 8) * 0.18;
+      const z = scale < 1 ? 1.5 : scale < 2 ? 2.5 : 4;
+      baseRadius = z + degreeBonus;
+    }
     const radius = isHovered || isSelected ? baseRadius * 1.6 : baseRadius;
 
     const alpha = dim(data.id);
@@ -332,10 +496,18 @@ export default function GraphView() {
       ctx.stroke();
     }
 
-    // Label rules: avatars always visible; people and memories only on hover/select.
-    const labelVisible =
-      data.kind === "avatar" ||
-      ((data.kind === "person" || data.kind === "memory") && (isHovered || isSelected));
+    // Detail-on-zoom label rules:
+    //   <1x       avatar labels only
+    //   1x – 2x   + person labels on hover/select
+    //   2x – 4x   + memory labels on hover/select
+    //   >4x       memory topic chips inline (if topics ≤ 3)
+    let labelVisible = false;
+    if (data.kind === "avatar") labelVisible = true;
+    else if (data.kind === "person") {
+      labelVisible = isHovered || isSelected || scale >= 1;
+    } else {
+      labelVisible = (isHovered || isSelected) && scale >= 2;
+    }
     if (labelVisible) {
       const fontSize = (data.kind === "avatar" ? 11 : 10) / scale;
       ctx.font = `${fontSize}px "DM Sans", sans-serif`;
@@ -344,6 +516,70 @@ export default function GraphView() {
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.fillText(data.label, x, y + radius + 4 / scale);
+    }
+
+    // Above 4x zoom, render up to 3 topic chips inline next to the
+    // memory node so the user can scan topical clusters without
+    // hovering each dot. Memories with more than 3 topics are skipped
+    // (would crowd the canvas); hover the node to see all topics.
+    if (
+      data.kind === "memory" &&
+      scale > 4 &&
+      data.topics.length > 0 &&
+      data.topics.length <= 3
+    ) {
+      const fontPx = 8 / scale;
+      ctx.font = `${fontPx}px "DM Sans", sans-serif`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      const padX = 4 / scale;
+      const padY = 1.5 / scale;
+      const gap = 3 / scale;
+      let cx = x + radius + 5 / scale;
+      const cy = y;
+      for (const topic of data.topics) {
+        const text = truncate(topic, 28);
+        const w = ctx.measureText(text).width + padX * 2;
+        const h = fontPx + padY * 2;
+        ctx.fillStyle = "rgba(63, 224, 255, 0.18)";
+        ctx.strokeStyle = "rgba(63, 224, 255, 0.35)";
+        ctx.lineWidth = 0.5 / scale;
+        ctx.beginPath();
+        const r = 2 / scale;
+        const rr = (
+          ctx as unknown as {
+            roundRect?: (
+              x: number, y: number, w: number, h: number, r: number,
+            ) => void;
+          }
+        ).roundRect;
+        if (rr) rr.call(ctx, cx, cy - h / 2, w, h, r);
+        else ctx.rect(cx, cy - h / 2, w, h);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = "rgba(220, 240, 255, 0.95)";
+        ctx.fillText(text, cx + padX, cy);
+        cx += w + gap;
+      }
+    }
+
+    // Pin indicator: small filled diamond at the top-right of any node
+    // whose fx/fy is set (i.e. dragged and released or otherwise
+    // anchored). Double-clicking the node releases it.
+    const simNode = node as { fx?: number | null; fy?: number | null };
+    if (simNode.fx != null && simNode.fy != null) {
+      const pinSize = 4.5 / scale;
+      const px = x + radius + pinSize * 0.6;
+      const py = y - radius - pinSize * 0.6;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = "rgba(255, 210, 120, 0.95)";
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.lineWidth = 0.8 / scale;
+      ctx.fillRect(-pinSize / 2, -pinSize / 2, pinSize, pinSize);
+      ctx.strokeRect(-pinSize / 2, -pinSize / 2, pinSize, pinSize);
+      ctx.restore();
     }
 
     ctx.globalAlpha = prevAlpha;
@@ -364,13 +600,12 @@ export default function GraphView() {
     ctx.fill();
   };
 
-  const linkActive = (l: ForceLink) => {
+  const linkActive = (l: ForceLink): boolean => {
     const src = typeof l.source === "object" ? (l.source as GraphNode).id : l.source;
     const tgt = typeof l.target === "object" ? (l.target as GraphNode).id : l.target;
-    return (
-      (hoveredId && (hoveredId === src || hoveredId === tgt)) ||
-      (selected?.id && (selected.id === src || selected.id === tgt))
-    );
+    if (hoveredId && (hoveredId === src || hoveredId === tgt)) return true;
+    if (selected?.id && (selected.id === src || selected.id === tgt)) return true;
+    return false;
   };
 
   const linkDimmed = (l: ForceLink): number => {
@@ -383,17 +618,125 @@ export default function GraphView() {
 
   const linkColor = (l: ForceLink) => {
     const highlight = linkActive(l);
-    const kind = (l as ForceLink & { kind?: string }).kind;
+    const link = l as ForceLink & {
+      kind?: string;
+      crossContext?: boolean;
+    };
+    const kind = link.kind;
     const dimFactor = linkDimmed(l);
-    const base =
-      highlight
-        ? [200, 235, 255, 0.95]
-        : kind === "memory-avatar"
-          ? [255, 255, 255, 0.1]
-          : kind === "memory-person"
-            ? [86, 224, 160, 0.15]
-            : [120, 130, 200, 0.09];
-    return `rgba(${base[0]}, ${base[1]}, ${base[2]}, ${(base[3] as number) * dimFactor})`;
+    // On highlight, every layer lights up brighter regardless of kind.
+    if (highlight) {
+      // Cross-context stays orange even when highlighted so the
+      // cross-pollination signal doesn't get washed out on hover.
+      if (kind === "memory-memory-semantic" && link.crossContext) {
+        return `rgba(239, 159, 39, ${0.95 * dimFactor})`;
+      }
+      return `rgba(200, 235, 255, ${0.95 * dimFactor})`;
+    }
+    let base: [number, number, number, number];
+    if (kind === "memory-avatar") {
+      // Structural (ownership): neutral white.
+      base = [255, 255, 255, 0.1];
+    } else if (kind === "memory-person") {
+      // Structural (attribution): neutral cyan-green.
+      base = [86, 224, 160, 0.15];
+    } else if (kind === "memory-memory-semantic") {
+      if (link.crossContext) {
+        // Orange — rare, high-signal cross-context connection.
+        base = [239, 159, 39, 0.85];
+      } else {
+        // Purple (#7F77DD) — authored semantic link.
+        base = [127, 119, 221, 0.55];
+      }
+    } else {
+      // Thematic: neutral gray, weakest layer.
+      base = [95, 94, 90, 0.4];
+    }
+    return `rgba(${base[0]}, ${base[1]}, ${base[2]}, ${base[3] * dimFactor})`;
+  };
+
+  // Cross-context semantic edges render dashed. All other edges render
+  // as a solid line. react-force-graph-2d reads this via the
+  // linkLineDash prop (dash pattern or null).
+  const linkLineDash = (l: ForceLink): number[] | null => {
+    const link = l as ForceLink & { kind?: string; crossContext?: boolean };
+    if (link.kind === "memory-memory-semantic" && link.crossContext) {
+      return [4, 3];
+    }
+    return null;
+  };
+
+  // Edge-label opacity: 1.0 in "always" mode; in "on-zoom" mode it
+  // fades from 0 at zoom<1.5 to 1 at zoom>2.5. Hovered/selected edges
+  // always go full opacity so the label is usable on inspection.
+  const edgeLabelOpacity = (active: boolean): number => {
+    if (active) return 1;
+    if (edgeLabelMode === "always") return 1;
+    if (zoomLevel <= EDGE_LABEL_ZOOM_MIN) return 0;
+    if (zoomLevel >= EDGE_LABEL_ZOOM_MAX) return 1;
+    return (zoomLevel - EDGE_LABEL_ZOOM_MIN) /
+      (EDGE_LABEL_ZOOM_MAX - EDGE_LABEL_ZOOM_MIN);
+  };
+
+  const drawLinkLabel = (l: ForceLink, ctx: CanvasRenderingContext2D, scale: number) => {
+    const link = l as ForceLink & {
+      source: GraphNode | string;
+      target: GraphNode | string;
+      kind?: string;
+      relationship?: string;
+      sharedTopics?: string[];
+      crossContext?: boolean;
+    };
+    const active = linkActive(l);
+    const opacity = edgeLabelOpacity(active);
+    if (opacity <= 0.01) return;
+    const label = edgeLabelText(link);
+    if (!label) return;
+    const src = typeof link.source === "object" ? link.source : null;
+    const tgt = typeof link.target === "object" ? link.target : null;
+    const sx = (src as { x?: number } | null)?.x;
+    const sy = (src as { y?: number } | null)?.y;
+    const tx = (tgt as { x?: number } | null)?.x;
+    const ty = (tgt as { y?: number } | null)?.y;
+    if (sx == null || sy == null || tx == null || ty == null) return;
+    const mx = (sx + tx) / 2;
+    const my = (sy + ty) / 2;
+    const text = truncate(label, 50);
+    const fontPx = 9 / scale;
+    ctx.font = `${fontPx}px "DM Sans", sans-serif`;
+    const metrics = ctx.measureText(text);
+    const pad = 3 / scale;
+    const boxW = metrics.width + pad * 2;
+    const boxH = fontPx + pad * 1.4;
+    const prev = ctx.globalAlpha;
+    ctx.globalAlpha = prev * opacity * linkDimmed(l);
+    // Subtle pill behind the text so it stays legible on busy backgrounds.
+    ctx.fillStyle = "rgba(5, 8, 18, 0.72)";
+    ctx.beginPath();
+    (ctx as unknown as {
+      roundRect?: (
+        x: number, y: number, w: number, h: number, r: number | number[],
+      ) => void;
+    }).roundRect
+      ? (ctx as unknown as {
+          roundRect: (
+            x: number, y: number, w: number, h: number, r: number | number[],
+          ) => void;
+        }).roundRect(mx - boxW / 2, my - boxH / 2, boxW, boxH, 3 / scale)
+      : ctx.rect(mx - boxW / 2, my - boxH / 2, boxW, boxH);
+    ctx.fill();
+    ctx.fillStyle =
+      link.kind === "memory-memory-semantic" && link.crossContext
+        ? "rgba(255, 200, 140, 0.95)"
+        : link.kind === "memory-memory-semantic"
+          ? "rgba(220, 215, 255, 0.92)"
+          : link.kind === "memory-memory-thematic"
+            ? "rgba(180, 180, 180, 0.85)"
+            : "rgba(220, 235, 255, 0.85)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, mx, my);
+    ctx.globalAlpha = prev;
   };
 
   const selectedNeighbors = selected
@@ -444,7 +787,8 @@ export default function GraphView() {
   }, [selected, selectedNeighbors, nodeById]);
 
   // Person panel pulls from the pre-computed aggregates on the node itself,
-  // so sessions/voice/text counts stay consistent with the data layer.
+  // so video-call / voice-note / chat-message / memory counts stay
+  // consistent with the data layer.
   const personPanel = useMemo(() => {
     if (!selected || selected.kind !== "person") return null;
     const avatars = (selected.avatarSlugs ?? [])
@@ -467,9 +811,9 @@ export default function GraphView() {
       .slice(0, 8)
       .map(([k, c]) => ({ topic: topicCasing.get(k) ?? k, count: c }));
     return {
-      sessionCount: selected.sessionCount ?? 0,
-      voiceMessageCount: selected.voiceMessageCount ?? 0,
-      textMessageCount: selected.textMessageCount ?? 0,
+      videoCallCount: selected.videoCallCount ?? 0,
+      voiceNoteCount: selected.voiceNoteCount ?? 0,
+      chatMessageCount: selected.chatMessageCount ?? 0,
       memoryCount: selected.memoryCount ?? 0,
       lastActiveAt: selected.lastActiveAt ?? "",
       avatars,
@@ -505,15 +849,23 @@ export default function GraphView() {
   const onboardingSteps = [
     {
       title: "Welcome to the Memory Graph",
-      body: "Each node is a memory, avatar, or person. Click any node to explore what it knows.",
+      body:
+        "Three kinds of nodes: avatars (the personas), people (humans they speak with), and memories (what was remembered). Click any node to explore what it knows.",
     },
     {
-      title: "Use the filters above to focus",
-      body: "Narrow the view by avatar, person, or topic — unmatched nodes fade away without disappearing.",
+      title: "Edges tell stories",
+      body:
+        "Lines aren't just decoration. Hover any edge to see why two things are linked — said by, said to, an authored relationship between two memories, or a shared theme.",
     },
     {
-      title: "Connections show shared topics",
-      body: "Lines between memories mean they share two or more topics. Follow them to find clusters of meaning.",
+      title: "Orange dashed edges are cross-context",
+      body:
+        "When a memory links to one belonging to a different person or a different avatar, the edge turns orange and dashed. These are rare and the most interesting — follow them to find unexpected bridges.",
+    },
+    {
+      title: "Drag to pin, double-click to release",
+      body:
+        "Hold and drag any node to pin it where you drop it (a small diamond marks pinned nodes). Double-click a pinned node to release it back to the live layout. Scroll to zoom toward the cursor.",
     },
   ];
 
@@ -660,6 +1012,93 @@ export default function GraphView() {
           background: rgba(255, 120, 180, 0.1);
           border-color: rgba(255, 120, 180, 0.55);
         }
+        .graph-filters .seg {
+          display: inline-flex;
+          border: 1px solid rgba(63, 224, 255, 0.22);
+          border-radius: 999px;
+          padding: 2px;
+          background: rgba(5, 8, 18, 0.55);
+        }
+        .graph-filters .seg button {
+          appearance: none;
+          background: transparent;
+          border: none;
+          color: rgba(200, 230, 255, 0.7);
+          padding: 4px 10px;
+          font-size: 0.62rem;
+          letter-spacing: 0.2em;
+          text-transform: uppercase;
+          border-radius: 999px;
+          cursor: pointer;
+          font-family: inherit;
+          transition: background 160ms ease, color 160ms ease;
+        }
+        .graph-filters .seg button:hover {
+          color: #fff;
+        }
+        .graph-filters .seg button.on {
+          background: rgba(63, 224, 255, 0.22);
+          color: #fff;
+          box-shadow: inset 0 0 0 1px rgba(63, 224, 255, 0.35);
+        }
+        .graph-filter-info {
+          position: absolute;
+          top: ${NAV_HEIGHT + 80}px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 6;
+          display: flex; align-items: center; gap: 12px;
+          padding: 8px 12px 8px 16px;
+          background: rgba(8, 12, 24, 0.78);
+          backdrop-filter: blur(14px);
+          border: 1px solid rgba(63, 224, 255, 0.22);
+          border-radius: 999px;
+          font-family: 'DM Sans', sans-serif;
+          color: rgba(232, 240, 255, 0.88);
+          font-size: 0.72rem;
+          letter-spacing: 0.04em;
+          box-shadow: 0 6px 30px rgba(0, 0, 0, 0.4);
+          max-width: min(820px, 92vw);
+          animation: graph-fade-in 240ms ease both;
+        }
+        .graph-filter-info .summary {
+          color: rgba(232, 240, 255, 0.92);
+        }
+        .graph-filter-info .pill {
+          display: inline-flex;
+          align-items: baseline;
+          gap: 6px;
+          padding: 3px 10px;
+          border: 1px solid rgba(63, 224, 255, 0.32);
+          border-radius: 999px;
+          background: rgba(63, 224, 255, 0.1);
+          color: rgba(232, 240, 255, 0.9);
+          font-size: 0.66rem;
+          letter-spacing: 0.06em;
+        }
+        .graph-filter-info .pill .k {
+          color: rgba(120, 180, 220, 0.7);
+          font-size: 0.56rem;
+          letter-spacing: 0.22em;
+          text-transform: uppercase;
+        }
+        .graph-filter-info .hint {
+          color: rgba(120, 180, 220, 0.7);
+          font-size: 0.62rem;
+          letter-spacing: 0.06em;
+        }
+        .graph-filter-info button.dismiss {
+          appearance: none;
+          background: transparent;
+          border: none;
+          color: rgba(232, 240, 255, 0.5);
+          cursor: pointer;
+          padding: 0 4px;
+          font-size: 1rem;
+          line-height: 1;
+          transition: color 160ms ease;
+        }
+        .graph-filter-info button.dismiss:hover { color: #fff; }
         .graph-legend {
           position: absolute;
           bottom: 24px;
@@ -718,9 +1157,44 @@ export default function GraphView() {
         }
         .graph-legend .edge-line {
           display: inline-block;
-          width: 20px; height: 1px;
-          background: rgba(180, 220, 255, 0.6);
-          box-shadow: 0 0 4px rgba(180, 220, 255, 0.7);
+          width: 24px; height: 0;
+          flex-shrink: 0;
+        }
+        .graph-legend .edge-line-structural {
+          border-top: 1px solid rgba(200, 235, 255, 0.55);
+          box-shadow: 0 0 4px rgba(180, 220, 255, 0.4);
+        }
+        .graph-legend .edge-line-semantic {
+          border-top: 1.5px solid rgba(127, 119, 221, 0.85);
+          box-shadow: 0 0 4px rgba(127, 119, 221, 0.55);
+        }
+        .graph-legend .edge-line-cross {
+          border-top: 1.6px dashed rgba(239, 159, 39, 0.95);
+          box-shadow: 0 0 5px rgba(239, 159, 39, 0.6);
+        }
+        .graph-legend .edge-line-thematic {
+          border-top: 1px solid rgba(150, 150, 150, 0.55);
+        }
+        .graph-legend .pin-glyph {
+          display: inline-block;
+          width: 8px; height: 8px;
+          flex-shrink: 0;
+          background: rgba(255, 210, 120, 0.95);
+          transform: rotate(45deg);
+          box-shadow: 0 0 6px rgba(255, 210, 120, 0.55);
+        }
+        .graph-legend .leg-toggle-hint {
+          display: inline-flex;
+          width: 22px; height: 14px;
+          align-items: center;
+          justify-content: center;
+          flex-shrink: 0;
+          font-size: 0.55rem;
+          letter-spacing: 0.04em;
+          background: rgba(63, 224, 255, 0.18);
+          border: 1px solid rgba(63, 224, 255, 0.45);
+          color: rgba(232, 240, 255, 0.92);
+          border-radius: 4px;
         }
         .graph-legend .section-divider {
           border-top: 1px solid rgba(120, 180, 220, 0.12);
@@ -1066,6 +1540,29 @@ export default function GraphView() {
             </select>
             <span className="caret">▾</span>
           </div>
+          <div className="filter-field">
+            <label>Labels</label>
+            <div className="seg" role="group" aria-label="Edge label visibility">
+              <button
+                type="button"
+                className={edgeLabelMode === "always" ? "on" : ""}
+                onClick={() => setEdgeLabelMode("always")}
+                title="Show every edge label at all zoom levels"
+                aria-pressed={edgeLabelMode === "always"}
+              >
+                Always
+              </button>
+              <button
+                type="button"
+                className={edgeLabelMode === "on-zoom" ? "on" : ""}
+                onClick={() => setEdgeLabelMode("on-zoom")}
+                title="Labels fade in as you zoom past 1.5x, fully visible past 2.5x"
+                aria-pressed={edgeLabelMode === "on-zoom"}
+              >
+                On zoom
+              </button>
+            </div>
+          </div>
           {hasFilter && (
             <button
               className="reset-btn"
@@ -1078,6 +1575,36 @@ export default function GraphView() {
               Reset
             </button>
           )}
+        </div>
+      )}
+
+      {dataset && showFilterCard && filteredCounts && (
+        <div className="graph-filter-info" role="status" aria-live="polite">
+          <span className="summary">
+            Showing <strong>{filteredCounts.memories}</strong> memories
+            , <strong>{filteredCounts.edges}</strong> edges
+            , <strong>{filteredCounts.people}</strong> people.
+          </span>
+          {filterChips.length > 0 && (
+            <span style={{ display: "inline-flex", gap: 6 }}>
+              {filterChips.map((c) => (
+                <span key={`${c.kind}-${c.label}`} className="pill">
+                  <span className="k">{c.kind}</span>
+                  {c.label}
+                </span>
+              ))}
+            </span>
+          )}
+          <span className="hint">
+            Non-matching nodes fade to 10% opacity but stay visible.
+          </span>
+          <button
+            className="dismiss"
+            aria-label="Dismiss filter info"
+            onClick={() => setDismissedFilterSig(filterSig)}
+          >
+            ×
+          </button>
         </div>
       )}
 
@@ -1101,26 +1628,78 @@ export default function GraphView() {
           autoPauseRedraw={false}
           enableNodeDrag
           minZoom={0.3}
-          maxZoom={8}
+          maxZoom={6}
           linkColor={linkColor as any}
+          linkLineDash={linkLineDash as any}
           linkWidth={(l) => {
             const active = linkActive(l);
             if (active) return 1.8;
-            const kind = (l as ForceLink & { kind?: string }).kind;
-            return kind === "memory-memory" ? 0.6 : 0.9;
+            const link = l as ForceLink & { kind?: string; crossContext?: boolean };
+            if (link.kind === "memory-memory-thematic") return 0.6;
+            if (link.kind === "memory-memory-semantic") {
+              return link.crossContext ? 1.6 : 1.2;
+            }
+            return 0.9;
           }}
           linkDirectionalParticles={(l) => (linkActive(l) ? 3 : 0)}
           linkDirectionalParticleSpeed={0.006}
           linkDirectionalParticleWidth={1.6}
           linkDirectionalParticleColor={() => "rgba(180, 220, 255, 0.9)"}
+          linkCanvasObject={drawLinkLabel as any}
+          linkCanvasObjectMode={() => "after"}
           nodeCanvasObject={drawNode}
           nodePointerAreaPaint={drawPointerArea}
           onNodeHover={(n) => setHoveredId(n ? String(n.id) : null)}
           onNodeClick={(n) => {
-            const data = nodeById.get(String(n.id));
+            const id = String(n.id);
+            const now = performance.now();
+            const last = lastClickRef.current;
+            // Detect double-click on the same node within DOUBLE_CLICK_MS.
+            // react-force-graph-2d has no onNodeDblClick, so we resolve
+            // it manually. A double-click releases a pinned node back
+            // to the simulation; a single click selects.
+            if (last && last.id === id && now - last.at <= DOUBLE_CLICK_MS) {
+              lastClickRef.current = null;
+              const sim = n as { fx?: number | null; fy?: number | null };
+              if (sim.fx != null || sim.fy != null) {
+                sim.fx = undefined as unknown as number;
+                sim.fy = undefined as unknown as number;
+                setPinnedIds((prev) => {
+                  if (!prev.has(id)) return prev;
+                  const next = new Set(prev);
+                  next.delete(id);
+                  return next;
+                });
+                // Nudge the simulation so the released node actually
+                // starts moving again instead of sitting at its last
+                // position.
+                fgRef.current?.d3ReheatSimulation?.();
+              }
+              return;
+            }
+            lastClickRef.current = { id, at: now };
+            const data = nodeById.get(id);
             if (data) setSelected(data);
           }}
+          onNodeDragEnd={(n) => {
+            // Obsidian semantics: releasing a drag pins the node where
+            // it was dropped. Users un-pin via double-click.
+            const sim = n as { x?: number; y?: number; fx?: number | null; fy?: number | null };
+            if (sim.x != null) sim.fx = sim.x;
+            if (sim.y != null) sim.fy = sim.y;
+            const id = String(n.id);
+            setPinnedIds((prev) => {
+              if (prev.has(id)) return prev;
+              const next = new Set(prev);
+              next.add(id);
+              return next;
+            });
+          }}
           onBackgroundClick={() => setSelected(null)}
+          onZoom={(transform) => {
+            const k = (transform as { k?: number }).k;
+            if (typeof k === "number" && Number.isFinite(k)) setZoomLevel(k);
+          }}
         />
       )}
 
@@ -1139,10 +1718,32 @@ export default function GraphView() {
           <span>Memory — label on hover</span>
         </div>
         <div className="section-divider" />
-        <h4>Edges</h4>
+        <h4>Edge layers</h4>
         <div className="kind-row">
-          <span className="edge-line" />
-          <span>Shared topics / connections</span>
+          <span className="edge-line edge-line-structural" />
+          <span>Structural — said by / said to</span>
+        </div>
+        <div className="kind-row">
+          <span className="edge-line edge-line-semantic" />
+          <span>Semantic — authored relationship</span>
+        </div>
+        <div className="kind-row">
+          <span className="edge-line edge-line-cross" />
+          <span>Cross-context (rare, valuable)</span>
+        </div>
+        <div className="kind-row">
+          <span className="edge-line edge-line-thematic" />
+          <span>Thematic — shared topics</span>
+        </div>
+        <div className="section-divider" />
+        <h4>Interaction</h4>
+        <div className="kind-row">
+          <span className="pin-glyph" />
+          <span>Pinned (drag to set, dbl-click to release)</span>
+        </div>
+        <div className="kind-row">
+          <span className="leg-toggle-hint">Aa</span>
+          <span>Edge labels: filter bar toggle</span>
         </div>
         <div className="section-divider" />
         <h4>Avatars</h4>
@@ -1315,19 +1916,19 @@ export default function GraphView() {
                 <>
                   <section>
                     <div className="stat-grid cols-4">
-                      <div className="stat">
-                        <div className="num">{personPanel.sessionCount}</div>
-                        <div className="lbl">Sessions</div>
+                      <div className="stat" title="Distinct ANIMA Connect video calls (call-anima-api-* sources)">
+                        <div className="num">{personPanel.videoCallCount}</div>
+                        <div className="lbl">Video Calls</div>
                       </div>
-                      <div className="stat">
-                        <div className="num">{personPanel.voiceMessageCount}</div>
-                        <div className="lbl">Voice</div>
+                      <div className="stat" title="Memory records derived from voice notes (voice-message / voice-message-poll sources)">
+                        <div className="num">{personPanel.voiceNoteCount}</div>
+                        <div className="lbl">Voice Notes</div>
                       </div>
-                      <div className="stat">
-                        <div className="num">{personPanel.textMessageCount}</div>
-                        <div className="lbl">Text</div>
+                      <div className="stat" title="Chat messages the person typed (sender=contact, type=text in wa_messages)">
+                        <div className="num">{personPanel.chatMessageCount}</div>
+                        <div className="lbl">Chat Msgs</div>
                       </div>
-                      <div className="stat">
+                      <div className="stat" title="All memories attributed to this person across aggregated contact rows">
                         <div className="num">{personPanel.memoryCount}</div>
                         <div className="lbl">Memories</div>
                       </div>

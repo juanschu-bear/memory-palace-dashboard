@@ -23,6 +23,7 @@ import {
   fetchMemoriesAll,
   fetchMessages,
   fetchContactsAll,
+  fetchConversations,
 } from "@/lib/api";
 import { AVATARS, memoryTopics } from "@/lib/avatars";
 
@@ -41,9 +42,14 @@ export interface GraphNode {
   degree: number;
   // Person-specific aggregates (undefined on avatar/memory nodes).
   lastActiveAt?: string;
-  sessionCount?: number;
-  voiceMessageCount?: number;
-  textMessageCount?: number;
+  // Distinct video calls: unique `call-anima-api-<hex>` wa_memories.source.
+  videoCallCount?: number;
+  // Voice notes: wa_memories rows with source in voice-message* (polled
+  // or summarized voice-note memories, not raw audio count).
+  voiceNoteCount?: number;
+  // User-typed chat: wa_messages where sender='contact' AND type='text'.
+  chatMessageCount?: number;
+  // All memory rows attributed to this person across aggregated contacts.
   memoryCount?: number;
   avatarSlugs?: string[];
   contactIds?: string[];
@@ -54,11 +60,42 @@ export interface GraphNode {
   createdAt?: string;
 }
 
+// Three layers of meaning in the graph:
+//
+//   Structural  — avatar↔memory ("said by") and person↔memory ("said to").
+//                 These are facts of ownership and attribution and are
+//                 already present in the data model; they anchor every
+//                 memory to its speakers.
+//
+//   Semantic    — memory↔memory edges derived from wa_memories.connections
+//                 (an author-written `linked_to` + `relationship` list).
+//                 Each edge carries the relationship label. Edges where
+//                 the two memories belong to different people OR different
+//                 avatars are the "cross-context" edges — rare and
+//                 visually loud because they are the most interesting.
+//
+//   Thematic    — memory↔memory edges inferred from shared non-generic
+//                 topics (≥2). Styled as the weakest layer — these are
+//                 statistical hints, not assertions the system made.
+export type EdgeKind =
+  | "memory-avatar"
+  | "memory-person"
+  | "memory-memory-semantic"
+  | "memory-memory-thematic";
+
 export interface GraphEdge {
   source: string;
   target: string;
-  kind: "memory-avatar" | "memory-person" | "memory-memory";
+  kind: EdgeKind;
   strength: number;
+  // Semantic only: the author-written relationship description.
+  relationship?: string;
+  // Semantic only: true when source/target memories belong to different
+  // aggregated people OR different avatar slugs. These edges are rare
+  // and visually amplified.
+  crossContext?: boolean;
+  // Thematic only: the topic strings that were shared.
+  sharedTopics?: string[];
 }
 
 export interface GraphDataset {
@@ -69,6 +106,10 @@ export interface GraphDataset {
     avatarCount: number;
     personCount: number;
     edgeCount: number;
+    structuralEdgeCount: number;
+    semanticEdgeCount: number;
+    crossContextSemanticEdgeCount: number;
+    thematicEdgeCount: number;
   };
 }
 
@@ -163,6 +204,44 @@ function isTestSource(source: string): boolean {
 const SESSION_PATTERN = /^call-anima-api-[a-f0-9]+$/;
 const VOICE_SOURCES = new Set(["voice-message", "voice-message-poll"]);
 
+// Topics so generic they shouldn't drive thematic edges. Without this
+// filter, 81% of memories carry "Behavioral Analysis" (see
+// docs/GRAPH-AUDIT.md Q5) and the memory layer hairballs into a single
+// blob. Keys are already normalized via norm() (lowercase + alphanumeric
+// only), so all casing/punctuation variants collapse to one entry.
+const GENERIC_TOPIC_KEYS = new Set<string>(
+  [
+    "Behavioral Analysis",
+    "Behavioral analysis",
+    "behavioral analysis",
+    "behavioral_analysis",
+    "behavioral-analysis",
+    "Emotional Analysis",
+    "emotional analysis",
+    "emotional_analysis",
+    "Voice Message",
+    "voice message",
+    "voice_message",
+    "Voice message",
+    "OPM",
+    "OPM findings",
+    "OPM_findings",
+    "opm findings",
+    "opm",
+    "Session Summary",
+    "session summary",
+    "session_log",
+    "session_data",
+    "user_feedback",
+    "Conversation",
+    "conversation",
+    "conversation transcript",
+    "persona interaction",
+    "persona_interaction",
+  ].map((t) => norm(t)),
+);
+
+
 function classifyMemorySource(source: string): MemorySourceType {
   if (SESSION_PATTERN.test(source)) return "video-call";
   if (VOICE_SOURCES.has(source)) return "voice";
@@ -200,8 +279,15 @@ interface PersonAgg {
   lastActiveAt: string;
   memoryIds: Set<string>;
   sessionSources: Set<string>;
-  voiceCount: number;
-  textCount: number;
+  // Voice notes logged as memory records (source in voice-message*).
+  // Not the same as the raw count of voice messages in wa_messages —
+  // a single voice note can produce multiple poll/summary memories.
+  voiceNoteCount: number;
+  // User-typed chat messages: wa_messages where sender='contact' AND
+  // type='text'. Excludes voice-note audio messages (those live under
+  // voiceNoteCount) and avatar-side [Call summary] / [TTS ERROR]
+  // system events (we never count those toward the person).
+  chatMessageCount: number;
   avatarSlugs: Set<string>;
   topics: Map<string, number>;
   topicCasing: Map<string, string>;
@@ -218,8 +304,8 @@ function newPersonAgg(key: string, email: string): PersonAgg {
     lastActiveAt: "",
     memoryIds: new Set(),
     sessionSources: new Set(),
-    voiceCount: 0,
-    textCount: 0,
+    voiceNoteCount: 0,
+    chatMessageCount: 0,
     avatarSlugs: new Set(),
     topics: new Map(),
     topicCasing: new Map(),
@@ -242,16 +328,29 @@ function personDisplayName(agg: PersonAgg): string {
 }
 
 export async function loadGraphData(): Promise<GraphDataset> {
-  const [ownersRaw, contactsRaw, memoriesRaw, messagesRaw] = await Promise.all([
-    fetchOwners(),
-    fetchContactsAll(),
-    fetchMemoriesAll(),
-    fetchMessages(),
-  ]);
+  const [ownersRaw, contactsRaw, memoriesRaw, messagesRaw, conversationsRaw] =
+    await Promise.all([
+      fetchOwners(),
+      fetchContactsAll(),
+      fetchMemoriesAll(),
+      fetchMessages(),
+      fetchConversations(),
+    ]);
   const owners = Array.isArray(ownersRaw) ? ownersRaw : [];
   const contacts = Array.isArray(contactsRaw) ? contactsRaw : [];
   const memories = Array.isArray(memoriesRaw) ? memoriesRaw : [];
   const messages = Array.isArray(messagesRaw) ? messagesRaw : [];
+  const conversations = Array.isArray(conversationsRaw) ? conversationsRaw : [];
+
+  // wa_messages does not carry contact_id directly — it has
+  // conversation_id, and wa_conversations.contact_id is the join path.
+  // Build the map once so the message loop is O(n).
+  const contactIdByConversationId = new Map<string, string>();
+  for (const conv of conversations) {
+    const convId = conv?.id ? String(conv.id) : "";
+    const cid = conv?.contact_id ? String(conv.contact_id) : "";
+    if (convId && cid) contactIdByConversationId.set(convId, cid);
+  }
 
   // owner_id → avatar slug, derived from wa_owners.display_name.
   const slugByOwnerId = new Map<string, string>();
@@ -273,17 +372,28 @@ export async function loadGraphData(): Promise<GraphDataset> {
     return null;
   };
 
-  // Aggregate wa_contacts rows into people keyed by email.
+  // Aggregate wa_contacts rows into people. Keying rules:
+  //   1. Normalized email if present — all rows sharing that email are
+  //      one person, even if display_name varies (e.g. a shared test
+  //      mailbox reused under several names).
+  //   2. Else normalized display_name (trimmed, lowercased). Different
+  //      rows with the same dn and no email collapse to the same person.
+  //      Rows with the same dn but DIFFERENT emails stay separate —
+  //      rule #1 wins, we trust explicit email mismatches.
+  //   3. Else the raw contact id (truly anonymous row, don't merge).
   const personByKey = new Map<string, PersonAgg>();
   const keyByContactId = new Map<string, string>();
   for (const contact of contacts) {
     const contactId = contact?.id ? String(contact.id) : "";
     if (!contactId) continue;
     const email = normalizeEmail(contact?.email);
+    const dn = String(contact?.display_name ?? "").trim();
+    const dnKey = dn.toLowerCase();
     const phone = String(contact?.phone_number ?? "").trim();
-    // Without an email we still want these rows on the graph, but they
-    // can't be merged with sibling rows, so key them by phone then id.
-    const key = email || (phone ? `phone:${phone}` : `contact:${contactId}`);
+    let key: string;
+    if (email) key = `email:${email}`;
+    else if (dnKey) key = `name:${dnKey}`;
+    else key = `contact:${contactId}`;
     let agg = personByKey.get(key);
     if (!agg) {
       agg = newPersonAgg(key, email);
@@ -292,7 +402,6 @@ export async function loadGraphData(): Promise<GraphDataset> {
     }
     agg.contactIds.add(contactId);
     keyByContactId.set(contactId, key);
-    const dn = String(contact?.display_name ?? "").trim();
     if (dn) agg.displayNameCounts.set(dn, (agg.displayNameCounts.get(dn) ?? 0) + 1);
     const la = String(contact?.last_active_at ?? "");
     if (la && la > agg.lastActiveAt) agg.lastActiveAt = la;
@@ -314,7 +423,7 @@ export async function loadGraphData(): Promise<GraphDataset> {
     const agg = personByKey.get(key)!;
     agg.memoryIds.add(memId);
     if (SESSION_PATTERN.test(rawSource)) agg.sessionSources.add(rawSource);
-    if (VOICE_SOURCES.has(rawSource)) agg.voiceCount += 1;
+    if (VOICE_SOURCES.has(rawSource)) agg.voiceNoteCount += 1;
     const slug = avatarSlugForMemory(memory);
     if (slug) agg.avatarSlugs.add(slug);
     for (const topic of memoryTopics(memory)) {
@@ -328,15 +437,26 @@ export async function loadGraphData(): Promise<GraphDataset> {
     if (created && created > agg.lastActiveAt) agg.lastActiveAt = created;
   }
 
-  // wa_messages → per-person text message count.
+  // wa_messages → per-person user-typed chat count. We only count rows
+  // the CONTACT actually typed: sender='contact' AND type='text'.
+  //   - Voice notes (type='voice') belong under voiceNoteCount.
+  //   - Avatar-side rows include [Call summary] / [TTS ERROR] system
+  //     events and TTS replies, none of which are the person's typed
+  //     messages, so we skip them entirely here.
+  // contact_id comes from wa_conversations; wa_messages itself does
+  // not carry a contact_id column, so without the join this loop was
+  // a no-op before.
   for (const msg of messages) {
-    const contactId = msg?.contact_id ? String(msg.contact_id) : "";
+    const convId = msg?.conversation_id ? String(msg.conversation_id) : "";
+    const contactId = convId ? contactIdByConversationId.get(convId) : undefined;
     const key = contactId ? keyByContactId.get(contactId) : undefined;
     if (!key) continue;
     const agg = personByKey.get(key)!;
-    agg.textCount += 1;
     const created = String(msg?.created_at ?? msg?.sent_at ?? "");
     if (created && created > agg.lastActiveAt) agg.lastActiveAt = created;
+    if (msg?.sender === "contact" && msg?.type === "text") {
+      agg.chatMessageCount += 1;
+    }
   }
 
   // Avatar nodes (all 7).
@@ -379,9 +499,9 @@ export async function loadGraphData(): Promise<GraphDataset> {
       },
       degree: 0,
       lastActiveAt: agg.lastActiveAt,
-      sessionCount: agg.sessionSources.size,
-      voiceMessageCount: agg.voiceCount,
-      textMessageCount: agg.textCount,
+      videoCallCount: agg.sessionSources.size,
+      voiceNoteCount: agg.voiceNoteCount,
+      chatMessageCount: agg.chatMessageCount,
       memoryCount: agg.memoryIds.size,
       avatarSlugs: Array.from(agg.avatarSlugs),
       contactIds: Array.from(agg.contactIds),
@@ -465,12 +585,82 @@ export async function loadGraphData(): Promise<GraphDataset> {
     }
   }
 
-  // Memory-memory edges: two memories sharing 2+ topics. Guard against the
-  // O(n²) explosion when a single topic has a huge bucket by capping the
-  // pairs we materialize per topic.
-  const sharedTopicPairs = new Map<string, number>();
+  // Semantic memory↔memory edges from wa_memories.connections.
+  // Each row carries a list of { linked_to, relationship } objects; we
+  // materialize one edge per connection whose target is a live memory
+  // node. Cross-context: source and target belong to different people
+  // OR different avatars (the rare, interesting cross-pollination).
+  let semanticEdgeCount = 0;
+  let crossContextSemanticEdgeCount = 0;
+  let droppedBrokenRefs = 0;
+  const semanticPairsSeen = new Set<string>();
+  for (const memory of memories) {
+    const memIdRaw = memory?.id;
+    if (memIdRaw == null) continue;
+    const sourceId = `memory:${String(memIdRaw)}`;
+    const sourceNode = nodeById.get(sourceId);
+    // Test-source memories are filtered earlier and won't have a node.
+    if (!sourceNode) continue;
+    const conns = memory?.connections;
+    if (!Array.isArray(conns)) continue;
+    for (const c of conns) {
+      if (!c || typeof c !== "object") continue;
+      const targetIdRaw = (c as { linked_to?: unknown }).linked_to;
+      if (targetIdRaw == null) continue;
+      const targetId = `memory:${String(targetIdRaw)}`;
+      const targetNode = nodeById.get(targetId);
+      if (!targetNode) {
+        // Broken ref (memory linked_to points at a row that doesn't
+        // exist). See docs/GRAPH-AUDIT.md Q3 — expect ~1 today (36→37).
+        droppedBrokenRefs += 1;
+        continue;
+      }
+      if (sourceId === targetId) continue;
+      const pairKey = sourceId < targetId
+        ? `${sourceId}|${targetId}`
+        : `${targetId}|${sourceId}`;
+      if (semanticPairsSeen.has(pairKey)) continue;
+      semanticPairsSeen.add(pairKey);
+      const relationship = String(
+        (c as { relationship?: unknown }).relationship ?? "",
+      ).trim();
+      const crossPerson =
+        (sourceNode.personId ?? null) !== (targetNode.personId ?? null) &&
+        sourceNode.personId != null &&
+        targetNode.personId != null;
+      const crossAvatar =
+        sourceNode.avatarSlug != null &&
+        targetNode.avatarSlug != null &&
+        sourceNode.avatarSlug !== targetNode.avatarSlug;
+      const crossContext = crossPerson || crossAvatar;
+      pushEdge({
+        source: sourceId,
+        target: targetId,
+        kind: "memory-memory-semantic",
+        strength: 1,
+        relationship: relationship || undefined,
+        crossContext,
+      });
+      semanticEdgeCount += 1;
+      if (crossContext) crossContextSemanticEdgeCount += 1;
+    }
+  }
+
+  // Thematic memory↔memory edges: two memories sharing ≥2 NON-GENERIC
+  // topics. Generic topics (Behavioral Analysis, Voice Message, OPM…)
+  // are stripped first — without that filter, "Behavioral Analysis"
+  // alone would connect 81% of memories to each other.
+  // Also cap per-topic pair materialization so one popular topic can't
+  // blow up to O(n²).
+  let thematicEdgeCount = 0;
+  const nonGenericBuckets = new Map<string, string[]>();
+  for (const [key, ids] of topicBuckets) {
+    if (GENERIC_TOPIC_KEYS.has(key)) continue;
+    nonGenericBuckets.set(key, ids);
+  }
+  const sharedTopicPairs = new Map<string, { shared: number; topics: Set<string> }>();
   const MAX_PAIRS_PER_TOPIC = 400;
-  for (const ids of topicBuckets.values()) {
+  for (const [topicKey, ids] of nonGenericBuckets) {
     if (ids.length < 2) continue;
     let pairCount = 0;
     outer: for (let i = 0; i < ids.length; i++) {
@@ -479,21 +669,33 @@ export async function loadGraphData(): Promise<GraphDataset> {
         const b = ids[j];
         if (a === b) continue;
         const pairKey = a < b ? `${a}|${b}` : `${b}|${a}`;
-        sharedTopicPairs.set(pairKey, (sharedTopicPairs.get(pairKey) ?? 0) + 1);
+        let entry = sharedTopicPairs.get(pairKey);
+        if (!entry) {
+          entry = { shared: 0, topics: new Set() };
+          sharedTopicPairs.set(pairKey, entry);
+        }
+        entry.shared += 1;
+        entry.topics.add(topicKey);
         pairCount += 1;
         if (pairCount >= MAX_PAIRS_PER_TOPIC) break outer;
       }
     }
   }
-  for (const [pairKey, shared] of sharedTopicPairs) {
-    if (shared < 2) continue;
+  for (const [pairKey, entry] of sharedTopicPairs) {
+    if (entry.shared < 2) continue;
     const [source, target] = pairKey.split("|");
+    // Skip if there's already a semantic edge on this pair — the
+    // thematic hint is redundant when the authors explicitly linked
+    // the two memories with a relationship label.
+    if (semanticPairsSeen.has(pairKey)) continue;
     pushEdge({
       source,
       target,
-      kind: "memory-memory",
-      strength: shared,
+      kind: "memory-memory-thematic",
+      strength: entry.shared,
+      sharedTopics: Array.from(entry.topics),
     });
+    thematicEdgeCount += 1;
   }
 
   // Drop person nodes that ended up isolated (no memory edges). Keep avatars
@@ -503,6 +705,18 @@ export async function loadGraphData(): Promise<GraphDataset> {
 
   const nodes: GraphNode[] = [...memoryNodes, ...keptAvatars, ...keptPersons];
 
+  const structuralEdgeCount =
+    edges.length - semanticEdgeCount - thematicEdgeCount;
+
+  if (import.meta.env?.DEV && droppedBrokenRefs > 0) {
+    // Surface the audited broken refs in dev console so we notice when
+    // the count drifts (expected 1 today).
+    // eslint-disable-next-line no-console
+    console.info(
+      `[graph] dropped ${droppedBrokenRefs} broken memory.connections ref(s)`,
+    );
+  }
+
   return {
     nodes,
     edges,
@@ -511,6 +725,10 @@ export async function loadGraphData(): Promise<GraphDataset> {
       avatarCount: keptAvatars.length,
       personCount: keptPersons.length,
       edgeCount: edges.length,
+      structuralEdgeCount,
+      semanticEdgeCount,
+      crossContextSemanticEdgeCount,
+      thematicEdgeCount,
     },
   };
 }

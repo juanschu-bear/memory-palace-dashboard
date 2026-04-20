@@ -11,10 +11,10 @@ import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import puppeteer from "puppeteer";
 
-const MARIA_MEMORY_COUNT = 5; // rows produced by the fixture below
-const MARIA_SESSION_COUNT = 3; // distinct call-anima-api-* sources
-const MARIA_VOICE_COUNT = 1; // voice-message rows
-const MARIA_TEXT_COUNT = 2; // wa_messages rows
+const MARIA_MEMORY_COUNT = 5; // non-test rows in MEMORIES below
+const MARIA_VIDEO_CALL_COUNT = 3; // distinct call-anima-api-* sources
+const MARIA_VOICE_NOTE_COUNT = 1; // wa_memories.source in voice-message*
+const MARIA_CHAT_MSG_COUNT = 2; // wa_messages, sender=contact, type=text
 
 const OWNERS = [
   { id: "o1", display_name: "Juan Schubert" },
@@ -40,6 +40,18 @@ const CONTACTS = [
 // Maria has memories spanning three avatars, three distinct video-call
 // sessions, one voice message, and one text-typed memory. The fixture
 // also includes a test-source row that MUST be filtered out.
+//
+// `connections` exercises the Step 3 semantic edge layer:
+// - m1 → m2 same-person (Maria), different-avatar (Juan vs Adri) →
+//   semantic + crossContext (cross-avatar)
+// - m2 → m6 different-person (Maria vs Alex), different-avatar →
+//   semantic + crossContext (cross-person AND cross-avatar)
+// - m3 → m5 same person (Maria), same avatar (Juan / Juan-Extended
+//   are different slugs but both Maria-side) — picks up cross-avatar
+// - m4 → m_test points at a row that's filtered out → broken ref
+// - "Behavioral Analysis" + "OPM" appear in two memories so we can
+//   verify the generic-topic blocklist actually filters them out of
+//   thematic edges (the audit shows these dominate prod data).
 const MEMORIES = [
   {
     id: "m1",
@@ -49,7 +61,10 @@ const MEMORIES = [
     source: "call-anima-api-aaa111",
     summary: "Maria and Juan talked about pricing.",
     raw_text: "FULL TRANSCRIPT + BEHAVIORAL ANALYSIS — noisy data should NOT be shown in the detail panel.",
-    topics: ["pricing"],
+    topics: ["pricing", "Behavioral Analysis"],
+    connections: [
+      { linked_to: "m2", relationship: "follow-up about growth pricing" },
+    ],
     created_at: "2026-04-01T00:00:00Z",
   },
   {
@@ -60,7 +75,10 @@ const MEMORIES = [
     source: "call-anima-api-bbb222",
     summary: "Maria asked Adri about growth channels.",
     raw_text: "noisy raw_text",
-    topics: ["growth"],
+    topics: ["growth", "OPM"],
+    connections: [
+      { linked_to: "m6", relationship: "echoes the sales objection raised by Alex" },
+    ],
     created_at: "2026-04-05T00:00:00Z",
   },
   {
@@ -72,6 +90,9 @@ const MEMORIES = [
     summary: "Deep dive session with Extended Juan.",
     raw_text: "noisy raw_text",
     topics: ["architecture", "growth"],
+    connections: [
+      { linked_to: "m5", relationship: "shared scheduling thread" },
+    ],
     created_at: "2026-04-10T00:00:00Z",
   },
   {
@@ -83,6 +104,9 @@ const MEMORIES = [
     summary: "Maria left Juan a voice memo about the deal.",
     raw_text: "noisy raw_text",
     topics: ["deal"],
+    connections: [
+      { linked_to: "m_test", relationship: "broken ref must not crash" },
+    ],
     created_at: "2026-04-15T00:00:00Z",
   },
   {
@@ -121,10 +145,30 @@ const MEMORIES = [
   },
 ];
 
+// wa_messages carries conversation_id, not contact_id directly. The
+// join runs through wa_conversations. Only (sender='contact', type='text')
+// rows count toward the person's chatMessageCount — the other rows
+// exercise the filter (voice notes, avatar replies, avatar system
+// events like [Call summary]).
+const CONVERSATIONS = [
+  { id: "cv1", contact_id: "c1", owner_id: "o1" },
+  { id: "cv5", contact_id: "c5", owner_id: "o1" },
+  { id: "cv6", contact_id: "c6", owner_id: "o4" },
+];
+
 const MESSAGES = [
-  { id: "msg1", contact_id: "c1", created_at: "2026-04-01T00:00:00Z" },
-  { id: "msg2", contact_id: "c5", created_at: "2026-04-18T00:00:00Z" },
-  { id: "msg3", contact_id: "c6", created_at: "2026-04-03T00:00:00Z" },
+  // Two user-typed messages from Maria — these are the only rows that
+  // should increment chatMessageCount.
+  { id: "msg1", conversation_id: "cv1", sender: "contact", type: "text", content: "hey", created_at: "2026-04-01T00:00:00Z" },
+  { id: "msg2", conversation_id: "cv5", sender: "contact", type: "text", content: "hola", created_at: "2026-04-18T00:00:00Z" },
+  // Filter exercise: voice note from contact — must NOT count as chat.
+  { id: "msg3", conversation_id: "cv5", sender: "contact", type: "voice", content: "[audio]", created_at: "2026-04-17T00:00:00Z" },
+  // Filter exercise: avatar typed reply — must NOT count.
+  { id: "msg4", conversation_id: "cv1", sender: "avatar", type: "text", content: "hi there", created_at: "2026-04-01T00:01:00Z" },
+  // Filter exercise: avatar-side [Call summary] — must NOT count.
+  { id: "msg5", conversation_id: "cv1", sender: "avatar", type: "text", content: "[Call summary] {...}", created_at: "2026-04-02T00:00:00Z" },
+  // Different person's message.
+  { id: "msg6", conversation_id: "cv6", sender: "contact", type: "text", content: "sup", created_at: "2026-04-03T00:00:00Z" },
 ];
 
 function fixtureFor(table) {
@@ -137,6 +181,8 @@ function fixtureFor(table) {
       return MEMORIES;
     case "wa_messages":
       return MESSAGES;
+    case "wa_conversations":
+      return CONVERSATIONS;
     default:
       return [];
   }
@@ -274,16 +320,16 @@ async function main() {
         `Maria memoryCount === ${MARIA_MEMORY_COUNT} (got ${maria?.memoryCount})`,
       );
       assert(
-        maria.sessionCount === MARIA_SESSION_COUNT,
-        `Maria sessionCount === ${MARIA_SESSION_COUNT} (got ${maria?.sessionCount})`,
+        maria.videoCallCount === MARIA_VIDEO_CALL_COUNT,
+        `Maria videoCallCount === ${MARIA_VIDEO_CALL_COUNT} (got ${maria?.videoCallCount})`,
       );
       assert(
-        maria.voiceMessageCount === MARIA_VOICE_COUNT,
-        `Maria voiceMessageCount === ${MARIA_VOICE_COUNT} (got ${maria?.voiceMessageCount})`,
+        maria.voiceNoteCount === MARIA_VOICE_NOTE_COUNT,
+        `Maria voiceNoteCount === ${MARIA_VOICE_NOTE_COUNT} (got ${maria?.voiceNoteCount})`,
       );
       assert(
-        maria.textMessageCount === MARIA_TEXT_COUNT,
-        `Maria textMessageCount === ${MARIA_TEXT_COUNT} (got ${maria?.textMessageCount})`,
+        maria.chatMessageCount === MARIA_CHAT_MSG_COUNT,
+        `Maria chatMessageCount === ${MARIA_CHAT_MSG_COUNT} (got ${maria?.chatMessageCount}; only sender=contact+type=text should count)`,
       );
       assert(
         maria.contactIds?.length === 5,
@@ -318,6 +364,70 @@ async function main() {
       assert(
         avatarSlugs.includes("juan-schubert-extended"),
         "Extended Juan avatar present",
+      );
+
+      // Step 1 keying: persons aggregate by (email → display_name →
+      // contact-id). Maria's 5 contact rows collapse to one person;
+      // Alex (c6) is a separate email → separate person; both have
+      // memories so both survive the degree>0 filter. Expect 2.
+      const personNodes = debugDataset.nodes.filter((n) => n.kind === "person");
+      assert(
+        personNodes.length === 2,
+        `Person count from email+display_name keying === 2 (got ${personNodes.length})`,
+      );
+
+      // Step 3 semantic edges: at least one edge sourced from
+      // wa_memories.connections, carrying a relationship label.
+      const semanticEdges = debugDataset.edges.filter(
+        (e) => e.kind === "memory-memory-semantic",
+      );
+      assert(
+        semanticEdges.length >= 1 &&
+          semanticEdges.some((e) => typeof e.relationship === "string" && e.relationship.length > 0),
+        `at least one memory-memory-semantic edge with a relationship label (got ${semanticEdges.length})`,
+      );
+
+      // Step 3 cross-context: at least one of those semantic edges
+      // crosses people or avatars (m2→m6 in the fixture does both).
+      const crossContextEdges = semanticEdges.filter((e) => e.crossContext === true);
+      assert(
+        crossContextEdges.length >= 1,
+        `at least one cross-context semantic edge (got ${crossContextEdges.length})`,
+      );
+
+      // Step 3 broken-ref guard: m4→m_test points at a filtered-out
+      // memory and must not surface as an edge.
+      const m4Edges = debugDataset.edges.filter(
+        (e) =>
+          (e.source === "memory:m4" || e.target === "memory:m4") &&
+          (e.source === "memory:m_test" || e.target === "memory:m_test"),
+      );
+      assert(
+        m4Edges.length === 0,
+        `m4→m_test broken ref must be dropped (got ${m4Edges.length})`,
+      );
+
+      // Step 3 generic-topic blocklist: "Behavioral Analysis" and
+      // "OPM" appear in the fixture; they must NOT show up in any
+      // thematic edge's sharedTopics list.
+      const thematicEdges = debugDataset.edges.filter(
+        (e) => e.kind === "memory-memory-thematic",
+      );
+      const leakedGenerics = thematicEdges.flatMap((e) => e.sharedTopics ?? [])
+        .filter((t) => /behavioral|opm|conversation|voice message|session summary/i.test(t));
+      assert(
+        leakedGenerics.length === 0,
+        `generic topics must not drive thematic edges (leaked: ${leakedGenerics.join(", ") || "—"})`,
+      );
+
+      // Stat breakdown should include the new sub-counts so callers
+      // can introspect the layered model without re-walking edges.
+      assert(
+        typeof debugDataset.stats.semanticEdgeCount === "number" &&
+          typeof debugDataset.stats.crossContextSemanticEdgeCount === "number" &&
+          typeof debugDataset.stats.structuralEdgeCount === "number" &&
+          typeof debugDataset.stats.thematicEdgeCount === "number",
+        "stats expose structural/semantic/crossContext/thematic edge counts",
       );
     } else {
       throw new Error(
