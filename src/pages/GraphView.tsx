@@ -138,6 +138,12 @@ export default function GraphView() {
   const lastClickRef = useRef<{ id: string; at: number } | null>(null);
   const DOUBLE_CLICK_MS = 300;
 
+  // Active-filter info card visibility. We track the signature of the
+  // last dismissed filter combination so the card stays hidden for
+  // *that* combination but pops back up when the user changes any
+  // filter — the spec calls it the "why am I seeing this" overlay.
+  const [dismissedFilterSig, setDismissedFilterSig] = useState<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     loadGraphData()
@@ -380,6 +386,40 @@ export default function GraphView() {
     if (!activeIds) return 1;
     return activeIds.has(id) ? 1 : 0.1;
   };
+
+  const filterSig = useMemo(
+    () => `${filterAvatar}|${filterPerson}|${filterTopic}`,
+    [filterAvatar, filterPerson, filterTopic],
+  );
+  const showFilterCard = hasFilter && dismissedFilterSig !== filterSig;
+  const filteredCounts = useMemo(() => {
+    if (!dataset || !activeIds) return null;
+    let memories = 0;
+    let people = 0;
+    for (const n of dataset.nodes) {
+      if (!activeIds.has(n.id)) continue;
+      if (n.kind === "memory") memories += 1;
+      else if (n.kind === "person") people += 1;
+    }
+    let edges = 0;
+    for (const e of dataset.edges) {
+      if (activeIds.has(e.source) && activeIds.has(e.target)) edges += 1;
+    }
+    return { memories, edges, people };
+  }, [dataset, activeIds]);
+  const filterChips = useMemo(() => {
+    const chips: { kind: string; label: string }[] = [];
+    if (filterAvatar) {
+      const a = GRAPH_AVATARS.find((x) => x.slug === filterAvatar);
+      chips.push({ kind: "Avatar", label: a?.name ?? filterAvatar });
+    }
+    if (filterPerson) {
+      const p = nodeById.get(filterPerson);
+      chips.push({ kind: "Person", label: p?.label ?? filterPerson });
+    }
+    if (filterTopic) chips.push({ kind: "Topic", label: filterTopic });
+    return chips;
+  }, [filterAvatar, filterPerson, filterTopic, nodeById]);
 
   const drawNode = (rawNode: ForceNode, ctx: CanvasRenderingContext2D, scale: number) => {
     const node = rawNode as ForceNode & { x?: number; y?: number };
@@ -993,6 +1033,64 @@ export default function GraphView() {
           color: #fff;
           box-shadow: inset 0 0 0 1px rgba(63, 224, 255, 0.35);
         }
+        .graph-filter-info {
+          position: absolute;
+          top: ${NAV_HEIGHT + 80}px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 6;
+          display: flex; align-items: center; gap: 12px;
+          padding: 8px 12px 8px 16px;
+          background: rgba(8, 12, 24, 0.78);
+          backdrop-filter: blur(14px);
+          border: 1px solid rgba(63, 224, 255, 0.22);
+          border-radius: 999px;
+          font-family: 'DM Sans', sans-serif;
+          color: rgba(232, 240, 255, 0.88);
+          font-size: 0.72rem;
+          letter-spacing: 0.04em;
+          box-shadow: 0 6px 30px rgba(0, 0, 0, 0.4);
+          max-width: min(820px, 92vw);
+          animation: graph-fade-in 240ms ease both;
+        }
+        .graph-filter-info .summary {
+          color: rgba(232, 240, 255, 0.92);
+        }
+        .graph-filter-info .pill {
+          display: inline-flex;
+          align-items: baseline;
+          gap: 6px;
+          padding: 3px 10px;
+          border: 1px solid rgba(63, 224, 255, 0.32);
+          border-radius: 999px;
+          background: rgba(63, 224, 255, 0.1);
+          color: rgba(232, 240, 255, 0.9);
+          font-size: 0.66rem;
+          letter-spacing: 0.06em;
+        }
+        .graph-filter-info .pill .k {
+          color: rgba(120, 180, 220, 0.7);
+          font-size: 0.56rem;
+          letter-spacing: 0.22em;
+          text-transform: uppercase;
+        }
+        .graph-filter-info .hint {
+          color: rgba(120, 180, 220, 0.7);
+          font-size: 0.62rem;
+          letter-spacing: 0.06em;
+        }
+        .graph-filter-info button.dismiss {
+          appearance: none;
+          background: transparent;
+          border: none;
+          color: rgba(232, 240, 255, 0.5);
+          cursor: pointer;
+          padding: 0 4px;
+          font-size: 1rem;
+          line-height: 1;
+          transition: color 160ms ease;
+        }
+        .graph-filter-info button.dismiss:hover { color: #fff; }
         .graph-legend {
           position: absolute;
           bottom: 24px;
@@ -1434,6 +1532,36 @@ export default function GraphView() {
               Reset
             </button>
           )}
+        </div>
+      )}
+
+      {dataset && showFilterCard && filteredCounts && (
+        <div className="graph-filter-info" role="status" aria-live="polite">
+          <span className="summary">
+            Showing <strong>{filteredCounts.memories}</strong> memories
+            , <strong>{filteredCounts.edges}</strong> edges
+            , <strong>{filteredCounts.people}</strong> people.
+          </span>
+          {filterChips.length > 0 && (
+            <span style={{ display: "inline-flex", gap: 6 }}>
+              {filterChips.map((c) => (
+                <span key={`${c.kind}-${c.label}`} className="pill">
+                  <span className="k">{c.kind}</span>
+                  {c.label}
+                </span>
+              ))}
+            </span>
+          )}
+          <span className="hint">
+            Non-matching nodes fade to 10% opacity but stay visible.
+          </span>
+          <button
+            className="dismiss"
+            aria-label="Dismiss filter info"
+            onClick={() => setDismissedFilterSig(filterSig)}
+          >
+            ×
+          </button>
         </div>
       )}
 
