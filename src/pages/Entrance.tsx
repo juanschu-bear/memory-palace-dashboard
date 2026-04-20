@@ -1,11 +1,25 @@
 import { useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { fetchMemories, fetchOwners, readDiary } from "@/lib/api";
 import { AVATARS, STANDARD_ROOMS, memoriesForAvatar } from "@/lib/avatars";
+import { attachInternalLinkNav } from "@/lib/clientLinks";
 
-const HTML = `<!-- Global Navigation -->
+function escapeHtml(s: string) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 
+const CORRIDORS_HTML = AVATARS.map((a, idx) => `
+  <a class="wing-corridor" href="/wing/${escapeHtml(a.slug)}" data-slug="${escapeHtml(a.slug)}">
+    <span class="corridor-number">${String(idx + 1).padStart(2, "0")}</span>
+    <span class="corridor-name">${escapeHtml(a.name)}</span>
+    <span class="corridor-role">${escapeHtml(a.role)}</span>
+    <div class="corridor-right">
+      <span class="corridor-count">— Memories</span>
+      <span class="corridor-arrow">&rarr;</span>
+    </div>
+  </a>`).join("");
 
-<!-- ========== SCENE 1: Palace Exterior ========== -->
+const HTML = `<!-- ========== SCENE 1: Palace Exterior ========== -->
 <div class="scene">
   <div class="sky"></div>
   <div class="stars" id="stars"></div>
@@ -41,10 +55,10 @@ const HTML = `<!-- Global Navigation -->
   </div>
 
   <div class="stats-bar">
-    <div class="stat-item"><div class="val">6</div><div class="lbl">Wings</div></div>
-    <div class="stat-item"><div class="val">49</div><div class="lbl">Memories</div></div>
-    <div class="stat-item"><div class="val">0</div><div class="lbl">Diary Entries</div></div>
-    <div class="stat-item"><div class="val">42</div><div class="lbl">Rooms</div></div>
+    <div class="stat-item"><div class="val">${AVATARS.length}</div><div class="lbl">Wings</div></div>
+    <div class="stat-item"><div class="val">—</div><div class="lbl">Memories</div></div>
+    <div class="stat-item"><div class="val">—</div><div class="lbl">Diary Entries</div></div>
+    <div class="stat-item"><div class="val">${STANDARD_ROOMS.length}</div><div class="lbl">Rooms</div></div>
   </div>
 </div>
 
@@ -52,68 +66,11 @@ const HTML = `<!-- Global Navigation -->
 <section class="corridors" id="corridors">
   <p class="corridors-label">Choose a Wing</p>
   <p class="corridors-sublabel">Extended Avatars</p>
-
-  <a class="wing-corridor" href="/wing/trace-flores">
-    <span class="corridor-number">01</span>
-    <span class="corridor-name">Trace Flores</span>
-    <span class="corridor-role">Business Strategist & Pattern Architect</span>
-    <div class="corridor-right">
-      <span class="corridor-count">49 Memories</span>
-      <span class="corridor-arrow">&rarr;</span>
-    </div>
-  </a>
-
-  <a class="wing-corridor" href="/wing/juan-schubert">
-    <span class="corridor-number">02</span>
-    <span class="corridor-name">Juan Schubert</span>
-    <span class="corridor-role">System Architect & Digital Twin</span>
-    <div class="corridor-right">
-      <span class="corridor-count">0 Memories</span>
-      <span class="corridor-arrow">&rarr;</span>
-    </div>
-  </a>
-
-  <a class="wing-corridor" href="/wing/adri-kastel">
-    <span class="corridor-number">03</span>
-    <span class="corridor-name">Adri Kastel</span>
-    <span class="corridor-role">Growth Expert & Scaling Mentor</span>
-    <div class="corridor-right">
-      <span class="corridor-count">0 Memories</span>
-      <span class="corridor-arrow">&rarr;</span>
-    </div>
-  </a>
-
-  <a class="wing-corridor" href="/wing/prof-brian-cox">
-    <span class="corridor-number">04</span>
-    <span class="corridor-name">Prof. Brian Cox</span>
-    <span class="corridor-role">Science Communicator & Educator</span>
-    <div class="corridor-right">
-      <span class="corridor-count">0 Memories</span>
-      <span class="corridor-arrow">&rarr;</span>
-    </div>
-  </a>
-
-  <a class="wing-corridor" href="/wing/clara-fontaine">
-    <span class="corridor-number">05</span>
-    <span class="corridor-name">Clara Fontaine</span>
-    <span class="corridor-role">Executive Communication Coach</span>
-    <div class="corridor-right">
-      <span class="corridor-count">0 Memories</span>
-      <span class="corridor-arrow">&rarr;</span>
-    </div>
-  </a>
-
-  <a class="wing-corridor" href="/wing/elena-navarro">
-    <span class="corridor-number">06</span>
-    <span class="corridor-name">Elena Navarro</span>
-    <span class="corridor-role">Sales Strategist & Business Growth Expert</span>
-    <div class="corridor-right">
-      <span class="corridor-count">0 Memories</span>
-      <span class="corridor-arrow">&rarr;</span>
-    </div>
-  </a>
-
+${CORRIDORS_HTML}
   <div class="bottom-nav">
+    <a href="/wings">Wings</a>
+    <a href="/rooms">Rooms</a>
+    <a href="/diary">Diary</a>
     <a href="/tunnels">Tunnels</a>
     <a href="/contacts">Contacts</a>
     <a href="/skills">Skills</a>
@@ -126,44 +83,50 @@ const HTML = `<!-- Global Navigation -->
 
 `;
 
-export default function EntrancePage(){
+export default function EntrancePage() {
   const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   // React does not execute <script> tags inside dangerouslySetInnerHTML,
   // so we create stars and wire the Enter button imperatively here.
   useEffect(() => {
     const root = ref.current;
     if (!root) return;
-    const starsEl = root.querySelector<HTMLDivElement>('#stars');
+    const starsEl = root.querySelector<HTMLDivElement>("#stars");
     if (starsEl && starsEl.childElementCount === 0) {
       for (let i = 0; i < 120; i++) {
-        const star = document.createElement('div');
+        const star = document.createElement("div");
         const size = Math.random() * 2 + 0.5;
         Object.assign(star.style, {
-          position: 'absolute',
-          width: size + 'px',
-          height: size + 'px',
-          background: '#fff',
-          borderRadius: '50%',
-          left: Math.random() * 100 + '%',
-          top: Math.random() * 55 + '%',
+          position: "absolute",
+          width: size + "px",
+          height: size + "px",
+          background: "#fff",
+          borderRadius: "50%",
+          left: Math.random() * 100 + "%",
+          top: Math.random() * 55 + "%",
           opacity: String(Math.random() * 0.6 + 0.1),
         });
         starsEl.appendChild(star);
       }
     }
-    const enterBtn = root.querySelector<HTMLAnchorElement>('.enter-btn');
+    const enterBtn = root.querySelector<HTMLAnchorElement>(".enter-btn");
     const handleEnter = (e: Event) => {
       e.preventDefault();
-      root.querySelector('#corridors')?.scrollIntoView({ behavior: 'smooth' });
+      root.querySelector("#corridors")?.scrollIntoView({ behavior: "smooth" });
     };
-    enterBtn?.addEventListener('click', handleEnter);
-    return () => enterBtn?.removeEventListener('click', handleEnter);
-  }, []);
+    enterBtn?.addEventListener("click", handleEnter);
+    const detachLinks = attachInternalLinkNav(root, navigate);
+    return () => {
+      enterBtn?.removeEventListener("click", handleEnter);
+      detachLinks();
+    };
+  }, [navigate]);
 
   useEffect(() => {
     const root = ref.current;
     if (!root) return;
+    let cancelled = false;
     (async () => {
       // Supabase is the source of truth for memories. MemPalace /status has
       // only 49 seed drawers; the real dataset is ~196 wa_memories rows.
@@ -179,23 +142,24 @@ export default function EntrancePage(){
           }
         }),
       );
+      if (cancelled) return;
       const diaryCount = diaryTotals.reduce((x, y) => x + y, 0);
 
-      const vals = root.querySelectorAll('.stats-bar .val');
-      if (vals[0]) vals[0].textContent = String(AVATARS.length);
-      if (vals[1]) vals[1].textContent = String(Array.isArray(memories) ? memories.length : 0);
-      if (vals[2]) vals[2].textContent = String(diaryCount);
-      if (vals[3]) vals[3].textContent = String(STANDARD_ROOMS.length);
+      const mems = Array.isArray(memories) ? memories : [];
+      const ows = Array.isArray(owners) ? owners : [];
 
-      const corridors = Array.from(root.querySelectorAll('.wing-corridor'));
-      corridors.forEach((c) => {
-        const href = (c as HTMLAnchorElement).getAttribute('href') || '';
-        const slug = href.split('/wing/')[1] || '';
-        const count = memoriesForAvatar(slug, Array.isArray(memories) ? memories : [], Array.isArray(owners) ? owners : []).length;
-        const label = c.querySelector('.corridor-count');
-        if (label) label.textContent = `${count} Memor${count === 1 ? 'y' : 'ies'}`;
+      const vals = root.querySelectorAll(".stats-bar .val");
+      if (vals[1]) vals[1].textContent = String(mems.length);
+      if (vals[2]) vals[2].textContent = String(diaryCount);
+
+      root.querySelectorAll<HTMLAnchorElement>(".wing-corridor[data-slug]").forEach((c) => {
+        const slug = c.dataset.slug || "";
+        const count = memoriesForAvatar(slug, mems, ows).length;
+        const label = c.querySelector(".corridor-count");
+        if (label) label.textContent = `${count} Memor${count === 1 ? "y" : "ies"}`;
       });
-    })().catch((err) => console.error('Entrance fetch failed:', err));
+    })().catch((err) => console.error("Entrance fetch failed:", err));
+    return () => { cancelled = true; };
   }, []);
 
   return <div ref={ref} dangerouslySetInnerHTML={{ __html: HTML }} />;
