@@ -110,9 +110,31 @@ export default function GraphView() {
     if (!dataset || !fgRef.current) return;
     const fg = fgRef.current;
     const charge = fg.d3Force("charge") as unknown as { strength?: (v: number) => unknown };
-    charge?.strength?.(-140);
+    charge?.strength?.(-190);
     const link = fg.d3Force("link") as unknown as { distance?: (v: number) => unknown };
-    link?.distance?.(42);
+    link?.distance?.(48);
+
+    // Gentle breathing: wander force adds tiny velocity noise each tick so
+    // the simulation never fully settles. Avatars drift slightly more to
+    // feel alive. Paired with cooldownTicks=Infinity and a high velocity
+    // decay, this produces Obsidian-style floating.
+    const wander = ((): { (_alpha: number): void; initialize?: (n: any[]) => void } => {
+      let simNodes: any[] = [];
+      const force = (_alpha: number) => {
+        for (const n of simNodes) {
+          if (n.fx != null || n.fy != null) continue;
+          const amp = n.kind === "avatar" ? 0.12 : 0.06;
+          n.vx = (n.vx ?? 0) + (Math.random() - 0.5) * amp;
+          n.vy = (n.vy ?? 0) + (Math.random() - 0.5) * amp;
+        }
+      };
+      force.initialize = (nodes: any[]) => {
+        simNodes = nodes;
+      };
+      return force;
+    })();
+    (fg.d3Force as unknown as (name: string, fn: unknown) => unknown)("wander", wander);
+
     const t = setTimeout(() => {
       try {
         fg.zoomToFit(600, 80);
@@ -156,8 +178,16 @@ export default function GraphView() {
     ctx.fill();
 
     if (data.kind === "avatar") {
+      const t = performance.now() / 1000;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 2.5);
+      const ringRadius = radius + 3 / scale + pulse * (6 / scale);
       ctx.beginPath();
-      ctx.strokeStyle = "rgba(255,255,255,0.85)";
+      ctx.strokeStyle = rgba(color, 0.25 + pulse * 0.55);
+      ctx.lineWidth = 1.4 / scale;
+      ctx.arc(x, y, ringRadius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
       ctx.lineWidth = 1.2 / scale;
       ctx.arc(x, y, radius + 3 / scale, 0, Math.PI * 2);
       ctx.stroke();
@@ -201,7 +231,7 @@ export default function GraphView() {
       (hoveredId && (hoveredId === src || hoveredId === tgt)) ||
       (selected?.id && (selected.id === src || selected.id === tgt));
     const kind = (l as ForceLink & { kind?: string }).kind;
-    if (highlight) return "rgba(180, 220, 255, 0.85)";
+    if (highlight) return "rgba(200, 235, 255, 0.95)";
     if (kind === "memory-avatar") return "rgba(255, 255, 255, 0.10)";
     if (kind === "memory-contact") return "rgba(86, 224, 160, 0.15)";
     return "rgba(120, 130, 200, 0.09)";
@@ -445,14 +475,21 @@ export default function GraphView() {
           width={size.w}
           height={size.h}
           backgroundColor="rgba(0,0,0,0)"
-          cooldownTicks={120}
+          cooldownTicks={Infinity}
           d3AlphaDecay={0.028}
-          d3VelocityDecay={0.32}
+          d3VelocityDecay={0.55}
+          autoPauseRedraw={false}
           enableNodeDrag
           minZoom={0.3}
           maxZoom={8}
           linkColor={linkColor as any}
           linkWidth={(l) => {
+            const src = typeof l.source === "object" ? (l.source as GraphNode).id : l.source;
+            const tgt = typeof l.target === "object" ? (l.target as GraphNode).id : l.target;
+            const active =
+              (hoveredId && (hoveredId === src || hoveredId === tgt)) ||
+              (selected?.id && (selected.id === src || selected.id === tgt));
+            if (active) return 1.8;
             const kind = (l as ForceLink & { kind?: string }).kind;
             return kind === "memory-memory" ? 0.6 : 0.9;
           }}
