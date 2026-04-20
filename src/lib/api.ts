@@ -93,3 +93,14 @@ export async function fetchMemories() {
 export async function fetchConversationMemory() {
   try { return await supabase("wa_conversation_memory", "select=*&order=updated_at.desc&limit=200"); } catch { return []; }
 }
+// Unbounded pull for the graph view: ~1000 rows each, ordered newest-first.
+// One call per table so the /graph view stays within the proxy's batch budget.
+export async function fetchMemoriesAll(limit: number = 1000) {
+  try { return await supabase("wa_memories", `select=*&order=created_at.desc&limit=${limit}`); } catch { return []; }
+}
+export async function fetchMessages(limit: number = 1000) {
+  try { return await supabase("wa_messages", `select=*&order=created_at.desc&limit=${limit}`); } catch { return []; }
+}
+export async function fetchContactsAll(limit: number = 1000) {
+  try { return await supabase("wa_contacts", `select=*&order=last_active_at.desc&limit=${limit}`); } catch { return []; }
+}

@@ -10,11 +10,12 @@ import {
   loadGraphData,
   colorForNode,
   AVATAR_COLORS,
+  GRAPH_AVATARS,
+  sourceTypeLabel,
   type GraphDataset,
   type GraphNode,
   type GraphEdge,
 } from "@/lib/graph-data";
-import { AVATARS } from "@/lib/avatars";
 
 type ForceNode = NodeObject<GraphNode>;
 type ForceLink = LinkObject<GraphNode, GraphEdge>;
@@ -47,8 +48,13 @@ function shortDate(s: string | undefined | null): string {
   return d;
 }
 
-function contactLabelOf(node: GraphNode | undefined): string {
+function personLabelOf(node: GraphNode | undefined): string {
   return node?.label ?? "";
+}
+
+function avatarMeta(slug: string | null | undefined) {
+  if (!slug) return null;
+  return GRAPH_AVATARS.find((a) => a.slug === slug) ?? null;
 }
 
 export default function GraphView() {
@@ -61,7 +67,7 @@ export default function GraphView() {
   const [selected, setSelected] = useState<GraphNode | null>(null);
 
   const [filterAvatar, setFilterAvatar] = useState<string>("");
-  const [filterContact, setFilterContact] = useState<string>("");
+  const [filterPerson, setFilterPerson] = useState<string>("");
   const [filterTopic, setFilterTopic] = useState<string>("");
 
   const [showOnboarding, setShowOnboarding] = useState<boolean>(() => {
@@ -74,7 +80,15 @@ export default function GraphView() {
     let cancelled = false;
     loadGraphData()
       .then((d) => {
-        if (!cancelled) setDataset(d);
+        if (!cancelled) {
+          setDataset(d);
+          // Expose the dataset on window in dev builds so puppeteer smoke
+          // tests can verify aggregation (memory/session counts) without
+          // having to poke the canvas. Stripped from prod bundles.
+          if (import.meta.env.DEV && typeof window !== "undefined") {
+            (window as unknown as { __graphDataset__?: GraphDataset }).__graphDataset__ = d;
+          }
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err?.message || "Failed to load graph data");
@@ -127,10 +141,10 @@ export default function GraphView() {
     return m;
   }, [dataset]);
 
-  const contactList = useMemo(() => {
+  const personList = useMemo(() => {
     if (!dataset) return [] as GraphNode[];
     return dataset.nodes
-      .filter((n) => n.kind === "contact")
+      .filter((n) => n.kind === "person")
       .sort((a, b) => b.degree - a.degree);
   }, [dataset]);
 
@@ -154,7 +168,7 @@ export default function GraphView() {
       .map(([key, count]) => ({ topic: firstCasing.get(key) ?? key, count }));
   }, [dataset]);
 
-  const hasFilter = !!(filterAvatar || filterContact || filterTopic);
+  const hasFilter = !!(filterAvatar || filterPerson || filterTopic);
 
   const activeIds = useMemo(() => {
     if (!dataset || !hasFilter) return null;
@@ -168,16 +182,18 @@ export default function GraphView() {
           /* keep */
         } else if (n.kind === "memory" && n.avatarSlug === filterAvatar) {
           /* keep */
+        } else if (n.kind === "person" && (n.avatarSlugs ?? []).includes(filterAvatar)) {
+          /* keep */
         } else if (neighborMap.get(n.id)?.has(avatarId)) {
           /* keep */
         } else {
           ok = false;
         }
       }
-      if (ok && filterContact) {
-        if (n.id === filterContact) {
+      if (ok && filterPerson) {
+        if (n.id === filterPerson) {
           /* keep */
-        } else if (neighborMap.get(n.id)?.has(filterContact)) {
+        } else if (neighborMap.get(n.id)?.has(filterPerson)) {
           /* keep */
         } else {
           ok = false;
@@ -204,15 +220,19 @@ export default function GraphView() {
       if (ok) inc.add(n.id);
     }
     return inc;
-  }, [dataset, filterAvatar, filterContact, filterTopic, neighborMap, nodeById, hasFilter]);
+  }, [dataset, filterAvatar, filterPerson, filterTopic, neighborMap, nodeById, hasFilter]);
 
   useEffect(() => {
     if (!dataset || !fgRef.current) return;
     const fg = fgRef.current;
+    // Spread clusters further so the bottom-right clump flattens out and
+    // the top-left of the viewport gets some density.
     const charge = fg.d3Force("charge") as unknown as { strength?: (v: number) => unknown };
-    charge?.strength?.(-190);
+    charge?.strength?.(-260);
     const link = fg.d3Force("link") as unknown as { distance?: (v: number) => unknown };
-    link?.distance?.(48);
+    link?.distance?.(60);
+    const center = fg.d3Force("center") as unknown as { strength?: (v: number) => unknown };
+    center?.strength?.(0.05);
 
     // Gentle breathing: wander force adds tiny velocity noise each tick so
     // the simulation never fully settles. Avatars drift slightly more to
@@ -265,7 +285,7 @@ export default function GraphView() {
     const baseRadius =
       data.kind === "avatar"
         ? 13
-        : data.kind === "contact"
+        : data.kind === "person"
           ? 4.5
           : 2 + Math.min(data.degree, 8) * 0.55;
     const radius = isHovered || isSelected ? baseRadius * 1.6 : baseRadius;
@@ -304,7 +324,7 @@ export default function GraphView() {
       ctx.lineWidth = 1.2 / scale;
       ctx.arc(x, y, radius + 3 / scale, 0, Math.PI * 2);
       ctx.stroke();
-    } else if (data.kind === "contact") {
+    } else if (data.kind === "person") {
       ctx.beginPath();
       ctx.strokeStyle = rgba(color, 0.45);
       ctx.lineWidth = 1 / scale;
@@ -312,10 +332,10 @@ export default function GraphView() {
       ctx.stroke();
     }
 
-    // Label rules: avatars always visible; contacts and memories only on hover/select.
+    // Label rules: avatars always visible; people and memories only on hover/select.
     const labelVisible =
       data.kind === "avatar" ||
-      ((data.kind === "contact" || data.kind === "memory") && (isHovered || isSelected));
+      ((data.kind === "person" || data.kind === "memory") && (isHovered || isSelected));
     if (labelVisible) {
       const fontSize = (data.kind === "avatar" ? 11 : 10) / scale;
       ctx.font = `${fontSize}px "DM Sans", sans-serif`;
@@ -337,7 +357,7 @@ export default function GraphView() {
     const node = rawNode as ForceNode & { x?: number; y?: number };
     const data = nodeById.get(String(node.id)) ?? (node as unknown as GraphNode);
     const r =
-      data.kind === "avatar" ? 16 : data.kind === "contact" ? 8 : 4 + Math.min(data.degree, 8) * 0.6;
+      data.kind === "avatar" ? 16 : data.kind === "person" ? 8 : 4 + Math.min(data.degree, 8) * 0.6;
     ctx.fillStyle = paintColor;
     ctx.beginPath();
     ctx.arc(node.x ?? 0, node.y ?? 0, r, 0, Math.PI * 2);
@@ -370,7 +390,7 @@ export default function GraphView() {
         ? [200, 235, 255, 0.95]
         : kind === "memory-avatar"
           ? [255, 255, 255, 0.1]
-          : kind === "memory-contact"
+          : kind === "memory-person"
             ? [86, 224, 160, 0.15]
             : [120, 130, 200, 0.09];
     return `rgba(${base[0]}, ${base[1]}, ${base[2]}, ${(base[3] as number) * dimFactor})`;
@@ -382,13 +402,17 @@ export default function GraphView() {
         .filter(Boolean) as GraphNode[])
     : [];
 
-  // Panel aggregates for avatar/contact nodes.
+  // Avatar panel aggregates: memory count, unique people spoken with,
+  // topic distribution, and top 5 people by memory count.
   const avatarPanel = useMemo(() => {
     if (!selected || selected.kind !== "avatar") return null;
+    const avatarSlug = selected.avatarSlug;
+    if (!avatarSlug) return null;
     const memories = selectedNeighbors.filter((n) => n.kind === "memory");
     const topicCounts = new Map<string, number>();
     const topicCasing = new Map<string, string>();
-    const contactCounts = new Map<string, number>();
+    const personMemoryCounts = new Map<string, number>();
+    const personSet = new Set<string>();
     for (const mem of memories) {
       for (const t of mem.topics) {
         const clean = t.trim();
@@ -397,37 +421,40 @@ export default function GraphView() {
         topicCounts.set(key, (topicCounts.get(key) ?? 0) + 1);
         if (!topicCasing.has(key)) topicCasing.set(key, clean);
       }
-      const nbs = neighborMap.get(mem.id);
-      if (nbs) {
-        for (const id of nbs) {
-          const nb = nodeById.get(id);
-          if (nb?.kind === "contact") {
-            contactCounts.set(nb.id, (contactCounts.get(nb.id) ?? 0) + 1);
-          }
-        }
+      if (mem.personId) {
+        personSet.add(mem.personId);
+        personMemoryCounts.set(mem.personId, (personMemoryCounts.get(mem.personId) ?? 0) + 1);
       }
     }
     const topTopicsLocal = Array.from(topicCounts.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([k, c]) => ({ topic: topicCasing.get(k) ?? k, count: c }));
-    const topContactsLocal = Array.from(contactCounts.entries())
+    const topPersonsLocal = Array.from(personMemoryCounts.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([id, count]) => ({ node: nodeById.get(id)!, count }))
       .filter((x) => !!x.node);
-    return { memoryCount: memories.length, topTopics: topTopicsLocal, topContacts: topContactsLocal };
-  }, [selected, selectedNeighbors, neighborMap, nodeById]);
+    return {
+      memoryCount: memories.length,
+      personCount: personSet.size,
+      topTopics: topTopicsLocal,
+      topPersons: topPersonsLocal,
+    };
+  }, [selected, selectedNeighbors, nodeById]);
 
-  const contactPanel = useMemo(() => {
-    if (!selected || selected.kind !== "contact") return null;
-    const memories = selectedNeighbors.filter((n) => n.kind === "memory");
+  // Person panel pulls from the pre-computed aggregates on the node itself,
+  // so sessions/voice/text counts stay consistent with the data layer.
+  const personPanel = useMemo(() => {
+    if (!selected || selected.kind !== "person") return null;
+    const avatars = (selected.avatarSlugs ?? [])
+      .map((s) => avatarMeta(s))
+      .filter(Boolean) as NonNullable<ReturnType<typeof avatarMeta>>[];
     const topicCounts = new Map<string, number>();
     const topicCasing = new Map<string, string>();
-    const avatarSlugs = new Set<string>();
-    for (const mem of memories) {
-      if (mem.avatarSlug) avatarSlugs.add(mem.avatarSlug);
-      for (const t of mem.topics) {
+    for (const nb of selectedNeighbors) {
+      if (nb.kind !== "memory") continue;
+      for (const t of nb.topics) {
         const clean = t.trim();
         if (!clean) continue;
         const key = clean.toLowerCase();
@@ -440,24 +467,30 @@ export default function GraphView() {
       .slice(0, 8)
       .map(([k, c]) => ({ topic: topicCasing.get(k) ?? k, count: c }));
     return {
-      memoryCount: memories.length,
-      conversationCount: selected.conversationCount ?? 0,
+      sessionCount: selected.sessionCount ?? 0,
+      voiceMessageCount: selected.voiceMessageCount ?? 0,
+      textMessageCount: selected.textMessageCount ?? 0,
+      memoryCount: selected.memoryCount ?? 0,
       lastActiveAt: selected.lastActiveAt ?? "",
-      avatars: Array.from(avatarSlugs)
-        .map((s) => AVATARS.find((a) => a.slug === s))
-        .filter(Boolean) as typeof AVATARS,
+      avatars,
       topTopics: topTopicsLocal,
+      email: selected.email ?? "",
     };
   }, [selected, selectedNeighbors]);
 
-  // Memory panel extras.
   const memoryPanel = useMemo(() => {
     if (!selected || selected.kind !== "memory") return null;
-    const avatar = selected.avatarSlug ? AVATARS.find((a) => a.slug === selected.avatarSlug) : null;
-    const contactNb = selectedNeighbors.find((n) => n.kind === "contact");
-    const body = String(selected.raw?.raw_text || selected.raw?.summary || selected.summary || "");
-    const created = shortDate(selected.raw?.created_at);
-    return { avatar, contact: contactNb, body, created };
+    const avatar = avatarMeta(selected.avatarSlug);
+    const personNb = selectedNeighbors.find((n) => n.kind === "person");
+    const body = selected.summary;
+    const created = shortDate(selected.createdAt);
+    return {
+      avatar,
+      person: personNb,
+      body,
+      created,
+      sourceLabel: sourceTypeLabel(selected.sourceType),
+    };
   }, [selected, selectedNeighbors]);
 
   const dismissOnboarding = () => {
@@ -472,11 +505,11 @@ export default function GraphView() {
   const onboardingSteps = [
     {
       title: "Welcome to the Memory Graph",
-      body: "Each node is a memory, avatar, or contact. Click any node to explore what it knows.",
+      body: "Each node is a memory, avatar, or person. Click any node to explore what it knows.",
     },
     {
       title: "Use the filters above to focus",
-      body: "Narrow the view by avatar, contact, or topic — unmatched nodes fade away without disappearing.",
+      body: "Narrow the view by avatar, person, or topic — unmatched nodes fade away without disappearing.",
     },
     {
       title: "Connections show shared topics",
@@ -669,7 +702,7 @@ export default function GraphView() {
           background: rgba(255,255,255,0.12);
           box-shadow: 0 0 10px rgba(255,255,255,0.35);
         }
-        .graph-legend .kind-swatch.contact {
+        .graph-legend .kind-swatch.person {
           background: #56E0A0;
           box-shadow: 0 0 10px #56E0A0;
           width: 10px; height: 10px;
@@ -813,6 +846,9 @@ export default function GraphView() {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
           gap: 10px;
+        }
+        .graph-panel .stat-grid.cols-4 {
+          grid-template-columns: repeat(4, 1fr);
         }
         .graph-panel .stat {
           padding: 10px 12px;
@@ -975,7 +1011,7 @@ export default function GraphView() {
         <h1>Memory Graph</h1>
         <div className="hud-meta">
           {dataset
-            ? `${dataset.stats.memoryCount} memories · ${dataset.stats.avatarCount} avatars · ${dataset.stats.contactCount} contacts · ${dataset.stats.edgeCount} edges`
+            ? `${dataset.stats.memoryCount} memories · ${dataset.stats.avatarCount} avatars · ${dataset.stats.personCount} people · ${dataset.stats.edgeCount} edges`
             : "Mapping the palace…"}
         </div>
       </div>
@@ -990,7 +1026,7 @@ export default function GraphView() {
               aria-label="Filter by avatar"
             >
               <option value="">All</option>
-              {AVATARS.map((a) => (
+              {GRAPH_AVATARS.map((a) => (
                 <option key={a.slug} value={a.slug}>
                   {a.name}
                 </option>
@@ -999,14 +1035,14 @@ export default function GraphView() {
             <span className="caret">▾</span>
           </div>
           <div className="filter-field">
-            <label>Contact</label>
+            <label>Person</label>
             <select
-              value={filterContact}
-              onChange={(e) => setFilterContact(e.target.value)}
-              aria-label="Filter by contact"
+              value={filterPerson}
+              onChange={(e) => setFilterPerson(e.target.value)}
+              aria-label="Filter by person"
             >
               <option value="">All</option>
-              {contactList.map((c) => (
+              {personList.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.label}
                 </option>
@@ -1035,7 +1071,7 @@ export default function GraphView() {
               className="reset-btn"
               onClick={() => {
                 setFilterAvatar("");
-                setFilterContact("");
+                setFilterPerson("");
                 setFilterTopic("");
               }}
             >
@@ -1095,8 +1131,8 @@ export default function GraphView() {
           <span>Avatar — always labeled</span>
         </div>
         <div className="kind-row">
-          <span className="kind-swatch contact" />
-          <span>Contact — label on hover</span>
+          <span className="kind-swatch person" />
+          <span>Person — label on hover</span>
         </div>
         <div className="kind-row">
           <span className="kind-swatch memory" />
@@ -1110,7 +1146,7 @@ export default function GraphView() {
         </div>
         <div className="section-divider" />
         <h4>Avatars</h4>
-        {AVATARS.map((a) => (
+        {GRAPH_AVATARS.map((a) => (
           <div className="leg-row" key={a.slug}>
             <span
               className="swatch"
@@ -1133,14 +1169,20 @@ export default function GraphView() {
                 {selected.avatarSlug && selected.kind !== "avatar" ? ` · ${selected.avatarSlug}` : ""}
               </div>
               <h2>{selected.label}</h2>
-              {selected.kind === "memory" && memoryPanel?.created && (
-                <div className="sub">{memoryPanel.created}</div>
+              {selected.kind === "memory" && memoryPanel && (
+                <div className="sub">
+                  {memoryPanel.sourceLabel}
+                  {memoryPanel.created ? ` · ${memoryPanel.created}` : ""}
+                </div>
               )}
               {selected.kind === "avatar" && selected.summary && (
                 <div className="sub">{selected.summary}</div>
               )}
-              {selected.kind === "contact" && contactPanel?.lastActiveAt && (
-                <div className="sub">Last active {shortDate(contactPanel.lastActiveAt)}</div>
+              {selected.kind === "person" && personPanel && (
+                <div className="sub">
+                  {personPanel.email || "—"}
+                  {personPanel.lastActiveAt ? ` · Last active ${shortDate(personPanel.lastActiveAt)}` : ""}
+                </div>
               )}
             </header>
             <div className="panel-body">
@@ -1148,11 +1190,11 @@ export default function GraphView() {
                 <>
                   {memoryPanel.body && (
                     <section>
-                      <h3>Memory</h3>
+                      <h3>Summary</h3>
                       <p>{memoryPanel.body}</p>
                     </section>
                   )}
-                  {(memoryPanel.avatar || memoryPanel.contact) && (
+                  {(memoryPanel.avatar || memoryPanel.person) && (
                     <section>
                       <h3>Linked</h3>
                       <div className="chips">
@@ -1173,19 +1215,19 @@ export default function GraphView() {
                             {memoryPanel.avatar.name}
                           </span>
                         )}
-                        {memoryPanel.contact && (
+                        {memoryPanel.person && (
                           <span
                             className="entity-chip"
-                            onClick={() => setSelected(memoryPanel.contact ?? null)}
+                            onClick={() => setSelected(memoryPanel.person ?? null)}
                           >
                             <span
                               className="dot"
                               style={{
-                                background: colorForNode(memoryPanel.contact),
-                                color: colorForNode(memoryPanel.contact),
+                                background: colorForNode(memoryPanel.person),
+                                color: colorForNode(memoryPanel.person),
                               }}
                             />
-                            {contactLabelOf(memoryPanel.contact)}
+                            {personLabelOf(memoryPanel.person)}
                           </span>
                         )}
                       </div>
@@ -1220,8 +1262,8 @@ export default function GraphView() {
                         <div className="lbl">Memories</div>
                       </div>
                       <div className="stat">
-                        <div className="num">{avatarPanel.topContacts.length}</div>
-                        <div className="lbl">Contacts</div>
+                        <div className="num">{avatarPanel.personCount}</div>
+                        <div className="lbl">People</div>
                       </div>
                       <div className="stat">
                         <div className="num">{avatarPanel.topTopics.length}</div>
@@ -1245,11 +1287,11 @@ export default function GraphView() {
                       </div>
                     </section>
                   )}
-                  {avatarPanel.topContacts.length > 0 && (
+                  {avatarPanel.topPersons.length > 0 && (
                     <section>
-                      <h3>Top 5 contacts</h3>
+                      <h3>Top 5 people</h3>
                       <div className="related-list">
-                        {avatarPanel.topContacts.map((c) => (
+                        {avatarPanel.topPersons.map((c) => (
                           <div
                             key={c.node.id}
                             className="related"
@@ -1269,29 +1311,33 @@ export default function GraphView() {
                 </>
               )}
 
-              {selected.kind === "contact" && contactPanel && (
+              {selected.kind === "person" && personPanel && (
                 <>
                   <section>
-                    <div className="stat-grid">
+                    <div className="stat-grid cols-4">
                       <div className="stat">
-                        <div className="num">{contactPanel.conversationCount}</div>
+                        <div className="num">{personPanel.sessionCount}</div>
                         <div className="lbl">Sessions</div>
                       </div>
                       <div className="stat">
-                        <div className="num">{contactPanel.memoryCount}</div>
-                        <div className="lbl">Memories</div>
+                        <div className="num">{personPanel.voiceMessageCount}</div>
+                        <div className="lbl">Voice</div>
                       </div>
                       <div className="stat">
-                        <div className="num">{contactPanel.avatars.length}</div>
-                        <div className="lbl">Avatars</div>
+                        <div className="num">{personPanel.textMessageCount}</div>
+                        <div className="lbl">Text</div>
+                      </div>
+                      <div className="stat">
+                        <div className="num">{personPanel.memoryCount}</div>
+                        <div className="lbl">Memories</div>
                       </div>
                     </div>
                   </section>
-                  {contactPanel.avatars.length > 0 && (
+                  {personPanel.avatars.length > 0 && (
                     <section>
                       <h3>Spoke with</h3>
                       <div className="chips">
-                        {contactPanel.avatars.map((a) => (
+                        {personPanel.avatars.map((a) => (
                           <span
                             key={a.slug}
                             className="entity-chip"
@@ -1310,11 +1356,11 @@ export default function GraphView() {
                       </div>
                     </section>
                   )}
-                  {contactPanel.topTopics.length > 0 && (
+                  {personPanel.topTopics.length > 0 && (
                     <section>
                       <h3>Top topics</h3>
                       <div className="chips">
-                        {contactPanel.topTopics.map((t) => (
+                        {personPanel.topTopics.map((t) => (
                           <span
                             key={t.topic}
                             className={`chip ${filterTopic.toLowerCase() === t.topic.toLowerCase() ? "active" : ""}`}
