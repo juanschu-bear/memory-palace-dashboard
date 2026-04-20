@@ -31,31 +31,74 @@ export default function UserWingPage() {
   const [memories, setMemories] = useState<any[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
   const [owners, setOwners] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
     (async () => {
-      const [cs, ms, convs, ows] = await Promise.all([
-        fetchContacts(),
-        fetchMemories(),
-        fetchConversations(),
-        fetchOwners(),
-      ]);
-      const list = Array.isArray(cs) ? cs : [];
-      const found =
-        list.find((c: Contact) => String(c.id ?? c.contact_id) === String(contactId)) ?? null;
-      setContact(found);
-      setMemories(Array.isArray(ms) ? ms.filter((m: any) => same(contactId, m)) : []);
-      setConversations(
-        Array.isArray(convs) ? convs.filter((c: any) => same(contactId, c)) : [],
-      );
-      setOwners(Array.isArray(ows) ? ows : []);
+      try {
+        const [cs, ms, convs, ows] = await Promise.all([
+          fetchContacts(),
+          fetchMemories(),
+          fetchConversations(),
+          fetchOwners(),
+        ]);
+        if (cancelled) return;
+        const list = Array.isArray(cs) ? cs : [];
+        const found =
+          list.find((c: Contact) => String(c.id ?? c.contact_id) === String(contactId)) ?? null;
+        setContact(found);
+        setMemories(Array.isArray(ms) ? ms.filter((m: any) => same(contactId, m)) : []);
+        setConversations(
+          Array.isArray(convs) ? convs.filter((c: any) => same(contactId, c)) : [],
+        );
+        setOwners(Array.isArray(ows) ? ows : []);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
+    return () => { cancelled = true; };
   }, [contactId]);
 
-  const ownerIds = new Set(conversations.map((c) => c.owner_id).filter(Boolean));
-  const relatedOwners = owners.filter((o) => ownerIds.has(o.id));
-  const displayName = contact?.display_name || contact?.name || "Unknown";
-  const initial = displayName.charAt(0).toUpperCase();
+  // "Avatars met" pulls owner_ids from both conversations AND memories so an
+  // avatar that left a memory but has no linked conversation still counts.
+  const ownerIds = new Set<string>();
+  conversations.forEach((c) => { if (c.owner_id) ownerIds.add(String(c.owner_id)); });
+  memories.forEach((m) => { if (m.owner_id) ownerIds.add(String(m.owner_id)); });
+  const relatedOwners = owners.filter((o) => ownerIds.has(String(o.id)));
+  const displayName = contact?.display_name || contact?.name || "";
+  const initial = (displayName.charAt(0) || "?").toUpperCase();
+
+  if (loading) {
+    return (
+      <div className="user-wing-page">
+        <div className="user-wing-inner">
+          <Link to="/wings" className="back-link">&larr; Back to Wings</Link>
+          <p className="user-wing-empty">Loading user wing…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!contact) {
+    return (
+      <div className="user-wing-page">
+        <div className="user-wing-inner">
+          <Link to="/wings" className="back-link">&larr; Back to Wings</Link>
+          <section className="user-wing-header">
+            <div>
+              <p className="user-wing-eyebrow">User Wing</p>
+              <h1 className="user-wing-name">Contact not found</h1>
+              <p className="user-wing-detail">
+                We couldn't find a contact with this id. They may have been removed.
+              </p>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="user-wing-page">
@@ -66,9 +109,9 @@ export default function UserWingPage() {
           <div className="user-wing-mark">{initial}</div>
           <div>
             <p className="user-wing-eyebrow">User Wing</p>
-            <h1 className="user-wing-name">{displayName}</h1>
+            <h1 className="user-wing-name">{displayName || "Unknown"}</h1>
             <p className="user-wing-detail">
-              {contact?.notes || contact?.phone || "Memories stored across your avatars."}
+              {contact.notes || contact.phone || "Memories stored across your avatars."}
             </p>
           </div>
         </section>
