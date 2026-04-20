@@ -20,6 +20,7 @@ type ForceNode = NodeObject<GraphNode>;
 type ForceLink = LinkObject<GraphNode, GraphEdge>;
 
 const NAV_HEIGHT = 56;
+const ONBOARD_KEY = "graph-onboarded-v1";
 
 function hexToRgb(hex: string): [number, number, number] {
   const clean = hex.replace("#", "");
@@ -40,6 +41,16 @@ function rgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+function shortDate(s: string | undefined | null): string {
+  if (!s) return "";
+  const d = String(s).slice(0, 10);
+  return d;
+}
+
+function contactLabelOf(node: GraphNode | undefined): string {
+  return node?.label ?? "";
+}
+
 export default function GraphView() {
   const fgRef = useRef<ForceGraphMethods<GraphNode, GraphEdge> | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,6 +59,16 @@ export default function GraphView() {
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selected, setSelected] = useState<GraphNode | null>(null);
+
+  const [filterAvatar, setFilterAvatar] = useState<string>("");
+  const [filterContact, setFilterContact] = useState<string>("");
+  const [filterTopic, setFilterTopic] = useState<string>("");
+
+  const [showOnboarding, setShowOnboarding] = useState<boolean>(() => {
+    if (typeof localStorage === "undefined") return true;
+    return !localStorage.getItem(ONBOARD_KEY);
+  });
+  const [onboardStep, setOnboardStep] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,13 +127,114 @@ export default function GraphView() {
     return m;
   }, [dataset]);
 
+  const contactList = useMemo(() => {
+    if (!dataset) return [] as GraphNode[];
+    return dataset.nodes
+      .filter((n) => n.kind === "contact")
+      .sort((a, b) => b.degree - a.degree);
+  }, [dataset]);
+
+  const topTopics = useMemo(() => {
+    if (!dataset) return [] as { topic: string; count: number }[];
+    const counts = new Map<string, number>();
+    const firstCasing = new Map<string, string>();
+    for (const n of dataset.nodes) {
+      if (n.kind !== "memory") continue;
+      for (const t of n.topics) {
+        const clean = t.trim();
+        if (!clean) continue;
+        const key = clean.toLowerCase();
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+        if (!firstCasing.has(key)) firstCasing.set(key, clean);
+      }
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([key, count]) => ({ topic: firstCasing.get(key) ?? key, count }));
+  }, [dataset]);
+
+  const hasFilter = !!(filterAvatar || filterContact || filterTopic);
+
+  const activeIds = useMemo(() => {
+    if (!dataset || !hasFilter) return null;
+    const inc = new Set<string>();
+    const topicN = filterTopic.toLowerCase();
+    for (const n of dataset.nodes) {
+      let ok = true;
+      if (filterAvatar) {
+        const avatarId = `avatar:${filterAvatar}`;
+        if (n.id === avatarId) {
+          /* keep */
+        } else if (n.kind === "memory" && n.avatarSlug === filterAvatar) {
+          /* keep */
+        } else if (neighborMap.get(n.id)?.has(avatarId)) {
+          /* keep */
+        } else {
+          ok = false;
+        }
+      }
+      if (ok && filterContact) {
+        if (n.id === filterContact) {
+          /* keep */
+        } else if (neighborMap.get(n.id)?.has(filterContact)) {
+          /* keep */
+        } else {
+          ok = false;
+        }
+      }
+      if (ok && filterTopic) {
+        if (n.kind === "memory") {
+          ok = n.topics.some((t) => t.toLowerCase() === topicN);
+        } else {
+          let any = false;
+          const nbs = neighborMap.get(n.id);
+          if (nbs) {
+            for (const nbId of nbs) {
+              const nb = nodeById.get(nbId);
+              if (nb?.kind === "memory" && nb.topics.some((t) => t.toLowerCase() === topicN)) {
+                any = true;
+                break;
+              }
+            }
+          }
+          ok = any;
+        }
+      }
+      if (ok) inc.add(n.id);
+    }
+    return inc;
+  }, [dataset, filterAvatar, filterContact, filterTopic, neighborMap, nodeById, hasFilter]);
+
   useEffect(() => {
     if (!dataset || !fgRef.current) return;
     const fg = fgRef.current;
     const charge = fg.d3Force("charge") as unknown as { strength?: (v: number) => unknown };
-    charge?.strength?.(-140);
+    charge?.strength?.(-190);
     const link = fg.d3Force("link") as unknown as { distance?: (v: number) => unknown };
-    link?.distance?.(42);
+    link?.distance?.(48);
+
+    // Gentle breathing: wander force adds tiny velocity noise each tick so
+    // the simulation never fully settles. Avatars drift slightly more to
+    // feel alive. Paired with cooldownTicks=Infinity and a high velocity
+    // decay, this produces Obsidian-style floating.
+    const wander = ((): { (_alpha: number): void; initialize?: (n: any[]) => void } => {
+      let simNodes: any[] = [];
+      const force = (_alpha: number) => {
+        for (const n of simNodes) {
+          if (n.fx != null || n.fy != null) continue;
+          const amp = n.kind === "avatar" ? 0.12 : 0.06;
+          n.vx = (n.vx ?? 0) + (Math.random() - 0.5) * amp;
+          n.vy = (n.vy ?? 0) + (Math.random() - 0.5) * amp;
+        }
+      };
+      force.initialize = (nodes: any[]) => {
+        simNodes = nodes;
+      };
+      return force;
+    })();
+    (fg.d3Force as unknown as (name: string, fn: unknown) => unknown)("wander", wander);
+
     const t = setTimeout(() => {
       try {
         fg.zoomToFit(600, 80);
@@ -122,6 +244,11 @@ export default function GraphView() {
     }, 400);
     return () => clearTimeout(t);
   }, [dataset]);
+
+  const dim = (id: string): number => {
+    if (!activeIds) return 1;
+    return activeIds.has(id) ? 1 : 0.1;
+  };
 
   const drawNode = (rawNode: ForceNode, ctx: CanvasRenderingContext2D, scale: number) => {
     const node = rawNode as ForceNode & { x?: number; y?: number };
@@ -136,8 +263,16 @@ export default function GraphView() {
       (selected?.id && neighborMap.get(selected.id)?.has(data.id));
 
     const baseRadius =
-      data.kind === "avatar" ? 10 : data.kind === "contact" ? 4 : 2 + Math.min(data.degree, 8) * 0.6;
+      data.kind === "avatar"
+        ? 13
+        : data.kind === "contact"
+          ? 4.5
+          : 2 + Math.min(data.degree, 8) * 0.55;
     const radius = isHovered || isSelected ? baseRadius * 1.6 : baseRadius;
+
+    const alpha = dim(data.id);
+    const prevAlpha = ctx.globalAlpha;
+    ctx.globalAlpha = prevAlpha * alpha;
 
     const glow = isHovered || isSelected ? 0.9 : isNeighbor ? 0.55 : 0.35;
     const haloRadius = radius + (isHovered || isSelected ? 14 : 6) / Math.max(scale, 0.4);
@@ -156,27 +291,42 @@ export default function GraphView() {
     ctx.fill();
 
     if (data.kind === "avatar") {
+      const t = performance.now() / 1000;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 2.5);
+      const ringRadius = radius + 3 / scale + pulse * (6 / scale);
       ctx.beginPath();
-      ctx.strokeStyle = "rgba(255,255,255,0.85)";
+      ctx.strokeStyle = rgba(color, 0.25 + pulse * 0.55);
+      ctx.lineWidth = 1.4 / scale;
+      ctx.arc(x, y, ringRadius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
       ctx.lineWidth = 1.2 / scale;
       ctx.arc(x, y, radius + 3 / scale, 0, Math.PI * 2);
       ctx.stroke();
+    } else if (data.kind === "contact") {
+      ctx.beginPath();
+      ctx.strokeStyle = rgba(color, 0.45);
+      ctx.lineWidth = 1 / scale;
+      ctx.arc(x, y, radius + 2 / scale, 0, Math.PI * 2);
+      ctx.stroke();
     }
 
+    // Label rules: avatars always visible; contacts and memories only on hover/select.
     const labelVisible =
       data.kind === "avatar" ||
-      (data.kind === "contact" && scale > 1.6) ||
-      isHovered ||
-      isSelected;
+      ((data.kind === "contact" || data.kind === "memory") && (isHovered || isSelected));
     if (labelVisible) {
       const fontSize = (data.kind === "avatar" ? 11 : 10) / scale;
       ctx.font = `${fontSize}px "DM Sans", sans-serif`;
       ctx.fillStyle =
-        data.kind === "avatar" ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.8)";
+        data.kind === "avatar" ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.85)";
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.fillText(data.label, x, y + radius + 4 / scale);
     }
+
+    ctx.globalAlpha = prevAlpha;
   };
 
   const drawPointerArea = (
@@ -187,29 +337,152 @@ export default function GraphView() {
     const node = rawNode as ForceNode & { x?: number; y?: number };
     const data = nodeById.get(String(node.id)) ?? (node as unknown as GraphNode);
     const r =
-      data.kind === "avatar" ? 14 : data.kind === "contact" ? 7 : 4 + Math.min(data.degree, 8) * 0.6;
+      data.kind === "avatar" ? 16 : data.kind === "contact" ? 8 : 4 + Math.min(data.degree, 8) * 0.6;
     ctx.fillStyle = paintColor;
     ctx.beginPath();
     ctx.arc(node.x ?? 0, node.y ?? 0, r, 0, Math.PI * 2);
     ctx.fill();
   };
 
-  const linkColor = (l: ForceLink) => {
+  const linkActive = (l: ForceLink) => {
     const src = typeof l.source === "object" ? (l.source as GraphNode).id : l.source;
     const tgt = typeof l.target === "object" ? (l.target as GraphNode).id : l.target;
-    const highlight =
+    return (
       (hoveredId && (hoveredId === src || hoveredId === tgt)) ||
-      (selected?.id && (selected.id === src || selected.id === tgt));
+      (selected?.id && (selected.id === src || selected.id === tgt))
+    );
+  };
+
+  const linkDimmed = (l: ForceLink): number => {
+    if (!activeIds) return 1;
+    const src = typeof l.source === "object" ? (l.source as GraphNode).id : l.source;
+    const tgt = typeof l.target === "object" ? (l.target as GraphNode).id : l.target;
+    const ok = activeIds.has(String(src)) && activeIds.has(String(tgt));
+    return ok ? 1 : 0.1;
+  };
+
+  const linkColor = (l: ForceLink) => {
+    const highlight = linkActive(l);
     const kind = (l as ForceLink & { kind?: string }).kind;
-    if (highlight) return "rgba(180, 220, 255, 0.85)";
-    if (kind === "memory-avatar") return "rgba(255, 255, 255, 0.10)";
-    if (kind === "memory-contact") return "rgba(86, 224, 160, 0.15)";
-    return "rgba(120, 130, 200, 0.09)";
+    const dimFactor = linkDimmed(l);
+    const base =
+      highlight
+        ? [200, 235, 255, 0.95]
+        : kind === "memory-avatar"
+          ? [255, 255, 255, 0.1]
+          : kind === "memory-contact"
+            ? [86, 224, 160, 0.15]
+            : [120, 130, 200, 0.09];
+    return `rgba(${base[0]}, ${base[1]}, ${base[2]}, ${(base[3] as number) * dimFactor})`;
   };
 
   const selectedNeighbors = selected
-    ? Array.from(neighborMap.get(selected.id) ?? []).map((id) => nodeById.get(id)).filter(Boolean) as GraphNode[]
+    ? (Array.from(neighborMap.get(selected.id) ?? [])
+        .map((id) => nodeById.get(id))
+        .filter(Boolean) as GraphNode[])
     : [];
+
+  // Panel aggregates for avatar/contact nodes.
+  const avatarPanel = useMemo(() => {
+    if (!selected || selected.kind !== "avatar") return null;
+    const memories = selectedNeighbors.filter((n) => n.kind === "memory");
+    const topicCounts = new Map<string, number>();
+    const topicCasing = new Map<string, string>();
+    const contactCounts = new Map<string, number>();
+    for (const mem of memories) {
+      for (const t of mem.topics) {
+        const clean = t.trim();
+        if (!clean) continue;
+        const key = clean.toLowerCase();
+        topicCounts.set(key, (topicCounts.get(key) ?? 0) + 1);
+        if (!topicCasing.has(key)) topicCasing.set(key, clean);
+      }
+      const nbs = neighborMap.get(mem.id);
+      if (nbs) {
+        for (const id of nbs) {
+          const nb = nodeById.get(id);
+          if (nb?.kind === "contact") {
+            contactCounts.set(nb.id, (contactCounts.get(nb.id) ?? 0) + 1);
+          }
+        }
+      }
+    }
+    const topTopicsLocal = Array.from(topicCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([k, c]) => ({ topic: topicCasing.get(k) ?? k, count: c }));
+    const topContactsLocal = Array.from(contactCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([id, count]) => ({ node: nodeById.get(id)!, count }))
+      .filter((x) => !!x.node);
+    return { memoryCount: memories.length, topTopics: topTopicsLocal, topContacts: topContactsLocal };
+  }, [selected, selectedNeighbors, neighborMap, nodeById]);
+
+  const contactPanel = useMemo(() => {
+    if (!selected || selected.kind !== "contact") return null;
+    const memories = selectedNeighbors.filter((n) => n.kind === "memory");
+    const topicCounts = new Map<string, number>();
+    const topicCasing = new Map<string, string>();
+    const avatarSlugs = new Set<string>();
+    for (const mem of memories) {
+      if (mem.avatarSlug) avatarSlugs.add(mem.avatarSlug);
+      for (const t of mem.topics) {
+        const clean = t.trim();
+        if (!clean) continue;
+        const key = clean.toLowerCase();
+        topicCounts.set(key, (topicCounts.get(key) ?? 0) + 1);
+        if (!topicCasing.has(key)) topicCasing.set(key, clean);
+      }
+    }
+    const topTopicsLocal = Array.from(topicCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([k, c]) => ({ topic: topicCasing.get(k) ?? k, count: c }));
+    return {
+      memoryCount: memories.length,
+      conversationCount: selected.conversationCount ?? 0,
+      lastActiveAt: selected.lastActiveAt ?? "",
+      avatars: Array.from(avatarSlugs)
+        .map((s) => AVATARS.find((a) => a.slug === s))
+        .filter(Boolean) as typeof AVATARS,
+      topTopics: topTopicsLocal,
+    };
+  }, [selected, selectedNeighbors]);
+
+  // Memory panel extras.
+  const memoryPanel = useMemo(() => {
+    if (!selected || selected.kind !== "memory") return null;
+    const avatar = selected.avatarSlug ? AVATARS.find((a) => a.slug === selected.avatarSlug) : null;
+    const contactNb = selectedNeighbors.find((n) => n.kind === "contact");
+    const body = String(selected.raw?.raw_text || selected.raw?.summary || selected.summary || "");
+    const created = shortDate(selected.raw?.created_at);
+    return { avatar, contact: contactNb, body, created };
+  }, [selected, selectedNeighbors]);
+
+  const dismissOnboarding = () => {
+    try {
+      localStorage.setItem(ONBOARD_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+    setShowOnboarding(false);
+  };
+
+  const onboardingSteps = [
+    {
+      title: "Welcome to the Memory Graph",
+      body: "Each node is a memory, avatar, or contact. Click any node to explore what it knows.",
+    },
+    {
+      title: "Use the filters above to focus",
+      body: "Narrow the view by avatar, contact, or topic — unmatched nodes fade away without disappearing.",
+    },
+    {
+      title: "Connections show shared topics",
+      body: "Lines between memories mean they share two or more topics. Follow them to find clusters of meaning.",
+    },
+  ];
 
   return (
     <div
@@ -230,6 +503,10 @@ export default function GraphView() {
         @keyframes graph-pulse {
           0%, 100% { opacity: 0.5; }
           50% { opacity: 1; }
+        }
+        @keyframes graph-fade-in {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
         }
         .graph-grid-bg {
           position: absolute;
@@ -279,6 +556,77 @@ export default function GraphView() {
           letter-spacing: 0.22em;
           color: rgba(120, 180, 220, 0.6);
         }
+        .graph-filters {
+          position: absolute;
+          top: ${NAV_HEIGHT + 20}px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 6;
+          display: flex;
+          gap: 10px;
+          padding: 8px 12px;
+          background: rgba(8, 12, 24, 0.7);
+          backdrop-filter: blur(14px);
+          border: 1px solid rgba(63, 224, 255, 0.18);
+          border-radius: 999px;
+          font-family: 'DM Sans', sans-serif;
+          box-shadow: 0 6px 30px rgba(0, 0, 0, 0.45);
+        }
+        .graph-filters .filter-field {
+          position: relative;
+          display: flex; align-items: center;
+        }
+        .graph-filters label {
+          font-size: 0.58rem;
+          letter-spacing: 0.28em;
+          text-transform: uppercase;
+          color: rgba(120, 180, 220, 0.7);
+          margin-right: 8px;
+        }
+        .graph-filters select {
+          appearance: none;
+          background: rgba(5, 8, 18, 0.7);
+          border: 1px solid rgba(63, 224, 255, 0.22);
+          color: rgba(232, 240, 255, 0.9);
+          padding: 6px 28px 6px 12px;
+          border-radius: 999px;
+          font-size: 0.75rem;
+          letter-spacing: 0.04em;
+          cursor: pointer;
+          font-family: inherit;
+          min-width: 120px;
+          transition: border-color 160ms ease, background 160ms ease;
+        }
+        .graph-filters select:hover,
+        .graph-filters select:focus {
+          border-color: rgba(63, 224, 255, 0.5);
+          background: rgba(10, 20, 40, 0.75);
+          outline: none;
+        }
+        .graph-filters .caret {
+          position: absolute; right: 10px; top: 50%;
+          transform: translateY(-50%);
+          pointer-events: none;
+          color: rgba(120, 180, 220, 0.6);
+          font-size: 0.6rem;
+        }
+        .graph-filters .reset-btn {
+          background: transparent;
+          border: 1px solid rgba(255, 120, 180, 0.3);
+          color: rgba(255, 180, 210, 0.85);
+          padding: 6px 14px;
+          border-radius: 999px;
+          font-size: 0.65rem;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+          cursor: pointer;
+          font-family: inherit;
+          transition: background 160ms ease, border-color 160ms ease;
+        }
+        .graph-filters .reset-btn:hover {
+          background: rgba(255, 120, 180, 0.1);
+          border-color: rgba(255, 120, 180, 0.55);
+        }
         .graph-legend {
           position: absolute;
           bottom: 24px;
@@ -293,6 +641,15 @@ export default function GraphView() {
           font-size: 0.7rem;
           letter-spacing: 0.08em;
           color: rgba(232, 240, 255, 0.75);
+          max-width: 260px;
+        }
+        .graph-legend h4 {
+          font-size: 0.58rem;
+          letter-spacing: 0.28em;
+          text-transform: uppercase;
+          color: rgba(120, 180, 220, 0.7);
+          margin-bottom: 8px;
+          font-weight: 500;
         }
         .graph-legend .leg-row {
           display: flex; align-items: center; gap: 8px;
@@ -302,12 +659,46 @@ export default function GraphView() {
           width: 10px; height: 10px; border-radius: 50%;
           box-shadow: 0 0 10px currentColor;
         }
+        .graph-legend .kind-swatch {
+          display: inline-flex; align-items: center; justify-content: center;
+          width: 18px; height: 18px;
+          border-radius: 50%;
+        }
+        .graph-legend .kind-swatch.avatar {
+          border: 1.5px solid rgba(255,255,255,0.85);
+          background: rgba(255,255,255,0.12);
+          box-shadow: 0 0 10px rgba(255,255,255,0.35);
+        }
+        .graph-legend .kind-swatch.contact {
+          background: #56E0A0;
+          box-shadow: 0 0 10px #56E0A0;
+          width: 10px; height: 10px;
+        }
+        .graph-legend .kind-swatch.memory {
+          background: #8A8AFF;
+          width: 5px; height: 5px;
+          box-shadow: 0 0 6px #8A8AFF;
+        }
+        .graph-legend .kind-row {
+          display: flex; align-items: center; gap: 10px;
+          padding: 4px 0;
+        }
+        .graph-legend .edge-line {
+          display: inline-block;
+          width: 20px; height: 1px;
+          background: rgba(180, 220, 255, 0.6);
+          box-shadow: 0 0 4px rgba(180, 220, 255, 0.7);
+        }
+        .graph-legend .section-divider {
+          border-top: 1px solid rgba(120, 180, 220, 0.12);
+          margin: 8px 0;
+        }
         .graph-panel {
           position: absolute;
           top: ${NAV_HEIGHT}px;
           right: 0;
           bottom: 0;
-          width: min(420px, 90vw);
+          width: min(440px, 92vw);
           background: linear-gradient(180deg, rgba(8, 12, 24, 0.9), rgba(4, 6, 14, 0.95));
           backdrop-filter: blur(14px);
           border-left: 1px solid rgba(63, 224, 255, 0.18);
@@ -321,14 +712,14 @@ export default function GraphView() {
         }
         .graph-panel.open { transform: translateX(0); }
         .graph-panel header {
-          padding: 20px 24px 12px;
+          padding: 20px 24px 14px;
           border-bottom: 1px solid rgba(120, 180, 220, 0.14);
+          position: relative;
         }
         .graph-panel header .kind-tag {
           font-size: 0.62rem;
           letter-spacing: 0.28em;
           text-transform: uppercase;
-          color: rgba(120, 180, 220, 0.8);
           margin-bottom: 6px;
         }
         .graph-panel header h2 {
@@ -338,12 +729,18 @@ export default function GraphView() {
           line-height: 1.3;
           color: rgba(232, 240, 255, 0.95);
         }
+        .graph-panel header .sub {
+          margin-top: 4px;
+          font-size: 0.72rem;
+          color: rgba(120, 180, 220, 0.8);
+          letter-spacing: 0.08em;
+        }
         .graph-panel .panel-body {
           flex: 1;
           overflow-y: auto;
           padding: 18px 24px 32px;
         }
-        .graph-panel .panel-body section { margin-bottom: 18px; }
+        .graph-panel .panel-body section { margin-bottom: 20px; }
         .graph-panel .panel-body h3 {
           font-size: 0.62rem;
           letter-spacing: 0.28em;
@@ -352,19 +749,89 @@ export default function GraphView() {
           margin-bottom: 8px;
         }
         .graph-panel .panel-body p {
-          font-size: 0.9rem;
-          line-height: 1.55;
-          color: rgba(232, 240, 255, 0.82);
+          font-size: 0.92rem;
+          line-height: 1.6;
+          color: rgba(232, 240, 255, 0.86);
+          white-space: pre-wrap;
         }
         .graph-panel .chips { display: flex; flex-wrap: wrap; gap: 6px; }
         .graph-panel .chip {
-          font-size: 0.7rem;
-          letter-spacing: 0.08em;
+          font-size: 0.72rem;
+          letter-spacing: 0.06em;
           padding: 4px 10px;
           border-radius: 999px;
           background: rgba(63, 224, 255, 0.08);
           border: 1px solid rgba(63, 224, 255, 0.25);
           color: rgba(200, 230, 255, 0.9);
+          cursor: pointer;
+          transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+        }
+        .graph-panel .chip:hover {
+          background: rgba(63, 224, 255, 0.18);
+          border-color: rgba(63, 224, 255, 0.5);
+          transform: translateY(-1px);
+        }
+        .graph-panel .chip.active {
+          background: rgba(63, 224, 255, 0.25);
+          border-color: rgba(63, 224, 255, 0.7);
+          color: #fff;
+        }
+        .graph-panel .entity-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 12px 6px 8px;
+          border-radius: 999px;
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          background: rgba(255, 255, 255, 0.04);
+          cursor: pointer;
+          font-size: 0.8rem;
+          color: rgba(232, 240, 255, 0.92);
+          transition: background 160ms ease, border-color 160ms ease;
+        }
+        .graph-panel .entity-chip:hover {
+          background: rgba(255, 255, 255, 0.08);
+        }
+        .graph-panel .entity-chip .dot {
+          width: 10px; height: 10px; border-radius: 50%;
+          box-shadow: 0 0 8px currentColor;
+          flex-shrink: 0;
+        }
+        .graph-panel .topic-row {
+          display: flex; align-items: center; gap: 10px;
+          padding: 6px 0;
+          font-size: 0.84rem;
+          color: rgba(232, 240, 255, 0.82);
+        }
+        .graph-panel .topic-row .count {
+          color: rgba(120, 180, 220, 0.7);
+          font-size: 0.72rem;
+          margin-left: auto;
+          letter-spacing: 0.06em;
+        }
+        .graph-panel .stat-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 10px;
+        }
+        .graph-panel .stat {
+          padding: 10px 12px;
+          border-radius: 6px;
+          border: 1px solid rgba(120, 180, 220, 0.15);
+          background: rgba(63, 224, 255, 0.04);
+        }
+        .graph-panel .stat .num {
+          font-family: 'Cormorant Garamond', serif;
+          font-size: 1.5rem;
+          color: #e8f0ff;
+          line-height: 1;
+        }
+        .graph-panel .stat .lbl {
+          font-size: 0.58rem;
+          letter-spacing: 0.24em;
+          text-transform: uppercase;
+          color: rgba(120, 180, 220, 0.75);
+          margin-top: 6px;
         }
         .graph-panel .related-list {
           display: flex; flex-direction: column; gap: 6px;
@@ -392,6 +859,11 @@ export default function GraphView() {
           color: rgba(232, 240, 255, 0.82);
           overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
+        .graph-panel .related .count {
+          font-size: 0.7rem;
+          color: rgba(120, 180, 220, 0.7);
+          letter-spacing: 0.06em;
+        }
         .graph-panel .close {
           position: absolute; top: 14px; right: 14px;
           background: transparent; border: none;
@@ -417,6 +889,83 @@ export default function GraphView() {
           animation: graph-pulse 1.8s ease-in-out infinite;
           pointer-events: none;
         }
+        .graph-onboard {
+          position: absolute; inset: 0;
+          z-index: 20;
+          display: grid; place-items: center;
+          background: rgba(4, 6, 14, 0.55);
+          backdrop-filter: blur(6px);
+          animation: graph-fade-in 260ms ease both;
+          font-family: 'DM Sans', sans-serif;
+        }
+        .graph-onboard .onboard-card {
+          position: relative;
+          width: min(460px, 90vw);
+          padding: 30px 32px 26px;
+          border-radius: 12px;
+          background: linear-gradient(180deg, rgba(10, 16, 30, 0.95), rgba(4, 8, 18, 0.98));
+          border: 1px solid rgba(63, 224, 255, 0.3);
+          box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7), 0 0 60px rgba(63, 224, 255, 0.08);
+          color: rgba(232, 240, 255, 0.9);
+        }
+        .graph-onboard .step-ticker {
+          display: flex; gap: 6px; margin-bottom: 18px;
+        }
+        .graph-onboard .step-ticker span {
+          flex: 1;
+          height: 2px;
+          background: rgba(120, 180, 220, 0.18);
+          border-radius: 2px;
+          transition: background 200ms ease;
+        }
+        .graph-onboard .step-ticker span.active {
+          background: rgba(63, 224, 255, 0.85);
+          box-shadow: 0 0 8px rgba(63, 224, 255, 0.8);
+        }
+        .graph-onboard h2 {
+          font-family: 'Cormorant Garamond', serif;
+          font-weight: 400;
+          font-size: 1.6rem;
+          margin-bottom: 10px;
+          color: #fff;
+        }
+        .graph-onboard p {
+          font-size: 0.92rem;
+          line-height: 1.6;
+          color: rgba(232, 240, 255, 0.78);
+        }
+        .graph-onboard .onboard-actions {
+          margin-top: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+        .graph-onboard button {
+          font-family: inherit;
+          cursor: pointer;
+          border-radius: 999px;
+          border: 1px solid rgba(63, 224, 255, 0.3);
+          padding: 8px 18px;
+          font-size: 0.72rem;
+          letter-spacing: 0.22em;
+          text-transform: uppercase;
+          background: transparent;
+          color: rgba(232, 240, 255, 0.85);
+          transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+        }
+        .graph-onboard button.primary {
+          background: rgba(63, 224, 255, 0.18);
+          border-color: rgba(63, 224, 255, 0.55);
+          color: #fff;
+        }
+        .graph-onboard button.primary:hover {
+          background: rgba(63, 224, 255, 0.3);
+        }
+        .graph-onboard button.ghost:hover {
+          color: #fff;
+          border-color: rgba(63, 224, 255, 0.5);
+        }
       `}</style>
 
       <div className="graph-grid-bg" />
@@ -430,6 +979,71 @@ export default function GraphView() {
             : "Mapping the palace…"}
         </div>
       </div>
+
+      {dataset && (
+        <div className="graph-filters" role="toolbar" aria-label="Graph filters">
+          <div className="filter-field">
+            <label>Avatar</label>
+            <select
+              value={filterAvatar}
+              onChange={(e) => setFilterAvatar(e.target.value)}
+              aria-label="Filter by avatar"
+            >
+              <option value="">All</option>
+              {AVATARS.map((a) => (
+                <option key={a.slug} value={a.slug}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+            <span className="caret">▾</span>
+          </div>
+          <div className="filter-field">
+            <label>Contact</label>
+            <select
+              value={filterContact}
+              onChange={(e) => setFilterContact(e.target.value)}
+              aria-label="Filter by contact"
+            >
+              <option value="">All</option>
+              {contactList.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <span className="caret">▾</span>
+          </div>
+          <div className="filter-field">
+            <label>Topic</label>
+            <select
+              value={filterTopic}
+              onChange={(e) => setFilterTopic(e.target.value)}
+              aria-label="Filter by topic"
+            >
+              <option value="">All</option>
+              {topTopics.map((t) => (
+                <option key={t.topic} value={t.topic}>
+                  {t.topic} · {t.count}
+                </option>
+              ))}
+            </select>
+            <span className="caret">▾</span>
+          </div>
+          {hasFilter && (
+            <button
+              className="reset-btn"
+              onClick={() => {
+                setFilterAvatar("");
+                setFilterContact("");
+                setFilterTopic("");
+              }}
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      )}
 
       {!dataset && !error && <div className="graph-loading">Initializing constellation…</div>}
       {error && (
@@ -445,25 +1059,21 @@ export default function GraphView() {
           width={size.w}
           height={size.h}
           backgroundColor="rgba(0,0,0,0)"
-          cooldownTicks={120}
+          cooldownTicks={Infinity}
           d3AlphaDecay={0.028}
-          d3VelocityDecay={0.32}
+          d3VelocityDecay={0.55}
+          autoPauseRedraw={false}
           enableNodeDrag
           minZoom={0.3}
           maxZoom={8}
           linkColor={linkColor as any}
           linkWidth={(l) => {
+            const active = linkActive(l);
+            if (active) return 1.8;
             const kind = (l as ForceLink & { kind?: string }).kind;
             return kind === "memory-memory" ? 0.6 : 0.9;
           }}
-          linkDirectionalParticles={(l) => {
-            const src = typeof l.source === "object" ? (l.source as GraphNode).id : l.source;
-            const tgt = typeof l.target === "object" ? (l.target as GraphNode).id : l.target;
-            const active =
-              (hoveredId && (hoveredId === src || hoveredId === tgt)) ||
-              (selected?.id && (selected.id === src || selected.id === tgt));
-            return active ? 3 : 0;
-          }}
+          linkDirectionalParticles={(l) => (linkActive(l) ? 3 : 0)}
           linkDirectionalParticleSpeed={0.006}
           linkDirectionalParticleWidth={1.6}
           linkDirectionalParticleColor={() => "rgba(180, 220, 255, 0.9)"}
@@ -479,6 +1089,27 @@ export default function GraphView() {
       )}
 
       <div className="graph-legend">
+        <h4>Node types</h4>
+        <div className="kind-row">
+          <span className="kind-swatch avatar" />
+          <span>Avatar — always labeled</span>
+        </div>
+        <div className="kind-row">
+          <span className="kind-swatch contact" />
+          <span>Contact — label on hover</span>
+        </div>
+        <div className="kind-row">
+          <span className="kind-swatch memory" />
+          <span>Memory — label on hover</span>
+        </div>
+        <div className="section-divider" />
+        <h4>Edges</h4>
+        <div className="kind-row">
+          <span className="edge-line" />
+          <span>Shared topics / connections</span>
+        </div>
+        <div className="section-divider" />
+        <h4>Avatars</h4>
         {AVATARS.map((a) => (
           <div className="leg-row" key={a.slug}>
             <span
@@ -488,10 +1119,6 @@ export default function GraphView() {
             <span>{a.name}</span>
           </div>
         ))}
-        <div className="leg-row" style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid rgba(120,180,220,0.1)" }}>
-          <span className="swatch" style={{ background: "#56E0A0", color: "#56E0A0" }} />
-          <span>Contact</span>
-        </div>
       </div>
 
       <aside className={`graph-panel ${selected ? "open" : ""}`} aria-hidden={!selected}>
@@ -503,43 +1130,211 @@ export default function GraphView() {
             <header>
               <div className="kind-tag" style={{ color: rgba(colorForNode(selected), 0.95) }}>
                 {selected.kind}
-                {selected.avatarSlug ? ` · ${selected.avatarSlug}` : ""}
+                {selected.avatarSlug && selected.kind !== "avatar" ? ` · ${selected.avatarSlug}` : ""}
               </div>
               <h2>{selected.label}</h2>
+              {selected.kind === "memory" && memoryPanel?.created && (
+                <div className="sub">{memoryPanel.created}</div>
+              )}
+              {selected.kind === "avatar" && selected.summary && (
+                <div className="sub">{selected.summary}</div>
+              )}
+              {selected.kind === "contact" && contactPanel?.lastActiveAt && (
+                <div className="sub">Last active {shortDate(contactPanel.lastActiveAt)}</div>
+              )}
             </header>
             <div className="panel-body">
-              {selected.summary && (
-                <section>
-                  <h3>{selected.kind === "memory" ? "Memory" : "Details"}</h3>
-                  <p>{selected.summary}</p>
-                </section>
+              {selected.kind === "memory" && memoryPanel && (
+                <>
+                  {memoryPanel.body && (
+                    <section>
+                      <h3>Memory</h3>
+                      <p>{memoryPanel.body}</p>
+                    </section>
+                  )}
+                  {(memoryPanel.avatar || memoryPanel.contact) && (
+                    <section>
+                      <h3>Linked</h3>
+                      <div className="chips">
+                        {memoryPanel.avatar && (
+                          <span
+                            className="entity-chip"
+                            onClick={() =>
+                              setSelected(nodeById.get(`avatar:${memoryPanel.avatar!.slug}`) ?? null)
+                            }
+                          >
+                            <span
+                              className="dot"
+                              style={{
+                                background: AVATAR_COLORS[memoryPanel.avatar.slug],
+                                color: AVATAR_COLORS[memoryPanel.avatar.slug],
+                              }}
+                            />
+                            {memoryPanel.avatar.name}
+                          </span>
+                        )}
+                        {memoryPanel.contact && (
+                          <span
+                            className="entity-chip"
+                            onClick={() => setSelected(memoryPanel.contact ?? null)}
+                          >
+                            <span
+                              className="dot"
+                              style={{
+                                background: colorForNode(memoryPanel.contact),
+                                color: colorForNode(memoryPanel.contact),
+                              }}
+                            />
+                            {contactLabelOf(memoryPanel.contact)}
+                          </span>
+                        )}
+                      </div>
+                    </section>
+                  )}
+                  {selected.topics.length > 0 && (
+                    <section>
+                      <h3>Topics</h3>
+                      <div className="chips">
+                        {selected.topics.map((t, i) => (
+                          <span
+                            key={`${t}-${i}`}
+                            className={`chip ${filterTopic.toLowerCase() === t.toLowerCase() ? "active" : ""}`}
+                            onClick={() => setFilterTopic(t)}
+                            title={`Filter graph by ${t}`}
+                          >
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </>
               )}
-              {selected.persona && selected.kind === "memory" && (
-                <section>
-                  <h3>Persona</h3>
-                  <p>{selected.persona}</p>
-                </section>
+
+              {selected.kind === "avatar" && avatarPanel && (
+                <>
+                  <section>
+                    <div className="stat-grid">
+                      <div className="stat">
+                        <div className="num">{avatarPanel.memoryCount}</div>
+                        <div className="lbl">Memories</div>
+                      </div>
+                      <div className="stat">
+                        <div className="num">{avatarPanel.topContacts.length}</div>
+                        <div className="lbl">Contacts</div>
+                      </div>
+                      <div className="stat">
+                        <div className="num">{avatarPanel.topTopics.length}</div>
+                        <div className="lbl">Topics</div>
+                      </div>
+                    </div>
+                  </section>
+                  {avatarPanel.topTopics.length > 0 && (
+                    <section>
+                      <h3>Top 5 topics</h3>
+                      <div className="chips">
+                        {avatarPanel.topTopics.map((t) => (
+                          <span
+                            key={t.topic}
+                            className={`chip ${filterTopic.toLowerCase() === t.topic.toLowerCase() ? "active" : ""}`}
+                            onClick={() => setFilterTopic(t.topic)}
+                          >
+                            {t.topic} · {t.count}
+                          </span>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  {avatarPanel.topContacts.length > 0 && (
+                    <section>
+                      <h3>Top 5 contacts</h3>
+                      <div className="related-list">
+                        {avatarPanel.topContacts.map((c) => (
+                          <div
+                            key={c.node.id}
+                            className="related"
+                            onClick={() => setSelected(c.node)}
+                          >
+                            <span
+                              className="dot"
+                              style={{ background: colorForNode(c.node), color: colorForNode(c.node) }}
+                            />
+                            <span className="label">{c.node.label}</span>
+                            <span className="count">{c.count} mem</span>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </>
               )}
-              {selected.topics.length > 0 && (
-                <section>
-                  <h3>Topics</h3>
-                  <div className="chips">
-                    {selected.topics.map((t, i) => (
-                      <span key={`${t}-${i}`} className="chip">{t}</span>
-                    ))}
-                  </div>
-                </section>
+
+              {selected.kind === "contact" && contactPanel && (
+                <>
+                  <section>
+                    <div className="stat-grid">
+                      <div className="stat">
+                        <div className="num">{contactPanel.conversationCount}</div>
+                        <div className="lbl">Sessions</div>
+                      </div>
+                      <div className="stat">
+                        <div className="num">{contactPanel.memoryCount}</div>
+                        <div className="lbl">Memories</div>
+                      </div>
+                      <div className="stat">
+                        <div className="num">{contactPanel.avatars.length}</div>
+                        <div className="lbl">Avatars</div>
+                      </div>
+                    </div>
+                  </section>
+                  {contactPanel.avatars.length > 0 && (
+                    <section>
+                      <h3>Spoke with</h3>
+                      <div className="chips">
+                        {contactPanel.avatars.map((a) => (
+                          <span
+                            key={a.slug}
+                            className="entity-chip"
+                            onClick={() => setSelected(nodeById.get(`avatar:${a.slug}`) ?? null)}
+                          >
+                            <span
+                              className="dot"
+                              style={{
+                                background: AVATAR_COLORS[a.slug],
+                                color: AVATAR_COLORS[a.slug],
+                              }}
+                            />
+                            {a.name}
+                          </span>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  {contactPanel.topTopics.length > 0 && (
+                    <section>
+                      <h3>Top topics</h3>
+                      <div className="chips">
+                        {contactPanel.topTopics.map((t) => (
+                          <span
+                            key={t.topic}
+                            className={`chip ${filterTopic.toLowerCase() === t.topic.toLowerCase() ? "active" : ""}`}
+                            onClick={() => setFilterTopic(t.topic)}
+                          >
+                            {t.topic} · {t.count}
+                          </span>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </>
               )}
-              {selectedNeighbors.length > 0 && (
+
+              {selectedNeighbors.length > 0 && selected.kind === "memory" && (
                 <section>
                   <h3>Connected · {selectedNeighbors.length}</h3>
                   <div className="related-list">
                     {selectedNeighbors.slice(0, 30).map((n) => (
-                      <div
-                        key={n.id}
-                        className="related"
-                        onClick={() => setSelected(n)}
-                      >
+                      <div key={n.id} className="related" onClick={() => setSelected(n)}>
                         <span
                           className="dot"
                           style={{ background: colorForNode(n), color: colorForNode(n) }}
@@ -554,6 +1349,37 @@ export default function GraphView() {
           </>
         )}
       </aside>
+
+      {showOnboarding && dataset && (
+        <div className="graph-onboard" role="dialog" aria-modal="true">
+          <div className="onboard-card">
+            <div className="step-ticker">
+              {onboardingSteps.map((_, i) => (
+                <span key={i} className={i === onboardStep ? "active" : ""} />
+              ))}
+            </div>
+            <h2>{onboardingSteps[onboardStep].title}</h2>
+            <p>{onboardingSteps[onboardStep].body}</p>
+            <div className="onboard-actions">
+              <button className="ghost" onClick={dismissOnboarding}>
+                Skip
+              </button>
+              <button
+                className="primary"
+                onClick={() => {
+                  if (onboardStep < onboardingSteps.length - 1) {
+                    setOnboardStep(onboardStep + 1);
+                  } else {
+                    dismissOnboarding();
+                  }
+                }}
+              >
+                {onboardStep < onboardingSteps.length - 1 ? "Next" : "Got it"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

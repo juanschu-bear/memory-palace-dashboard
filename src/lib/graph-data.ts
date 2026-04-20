@@ -1,4 +1,4 @@
-import { fetchMemories, fetchContacts } from "@/lib/api";
+import { fetchMemories, fetchContacts, fetchConversations } from "@/lib/api";
 import { AVATARS, memoryTopics } from "@/lib/avatars";
 
 export type GraphNodeKind = "memory" | "avatar" | "contact";
@@ -13,6 +13,8 @@ export interface GraphNode {
   persona: string | null;
   raw: any;
   degree: number;
+  lastActiveAt?: string;
+  conversationCount?: number;
 }
 
 export interface GraphEdge {
@@ -69,12 +71,14 @@ function shortSummary(memory: any): string {
 }
 
 export async function loadGraphData(): Promise<GraphDataset> {
-  const [memoriesRaw, contactsRaw] = await Promise.all([
+  const [memoriesRaw, contactsRaw, conversationsRaw] = await Promise.all([
     fetchMemories(),
     fetchContacts(),
+    fetchConversations(),
   ]);
   const memories = Array.isArray(memoriesRaw) ? memoriesRaw : [];
   const contacts = Array.isArray(contactsRaw) ? contactsRaw : [];
+  const conversations = Array.isArray(conversationsRaw) ? conversationsRaw : [];
 
   const contactKeyById = new Map<string, string>();
   const contactNodes = new Map<string, GraphNode>();
@@ -83,7 +87,9 @@ export async function loadGraphData(): Promise<GraphDataset> {
     if (!displayName) continue;
     const key = `contact:${displayName.toLowerCase()}`;
     if (row?.id) contactKeyById.set(String(row.id), key);
-    if (!contactNodes.has(key)) {
+    const rawLast = String(row?.last_active_at || row?.joined_at || "");
+    const existing = contactNodes.get(key);
+    if (!existing) {
       contactNodes.set(key, {
         id: key,
         kind: "contact",
@@ -94,8 +100,24 @@ export async function loadGraphData(): Promise<GraphDataset> {
         persona: null,
         raw: row,
         degree: 0,
+        lastActiveAt: rawLast,
+        conversationCount: 0,
       });
+    } else if (rawLast > (existing.lastActiveAt ?? "")) {
+      existing.lastActiveAt = rawLast;
+      if (!existing.summary && (row?.email || row?.phone_number)) {
+        existing.summary = String(row?.email || row?.phone_number);
+      }
     }
+  }
+
+  for (const conv of conversations) {
+    const cid = conv?.contact_id ? String(conv.contact_id) : "";
+    const key = cid ? contactKeyById.get(cid) : undefined;
+    if (!key) continue;
+    const node = contactNodes.get(key);
+    if (!node) continue;
+    node.conversationCount = (node.conversationCount ?? 0) + 1;
   }
 
   const avatarNodes = new Map<string, GraphNode>();
