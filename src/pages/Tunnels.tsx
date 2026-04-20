@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { fetchMemories, fetchOwners } from "@/lib/api";
 import { AVATARS, findAvatar, memoriesForAvatar } from "@/lib/avatars";
+import { attachInternalLinkNav } from "@/lib/clientLinks";
 
 const HTML = `<nav class="breadcrumb">
   <a href="/tunnels">Tunnels</a>
@@ -137,6 +138,7 @@ const HTML = `<nav class="breadcrumb">
 
 export default function TunnelsPage(){
   const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
   const params = useParams();
   const slug = (params.slug as string) || "trace-flores";
   const profile = findAvatar(slug);
@@ -150,6 +152,7 @@ export default function TunnelsPage(){
   );
   useEffect(()=>{
     const root=ref.current; if(!root) return;
+    const detachLinks = attachInternalLinkNav(root, navigate);
     (async()=>{
       const [memories, owners] = await Promise.all([
         fetchMemories().catch(() => []),
@@ -184,6 +187,7 @@ export default function TunnelsPage(){
         }
       });
     })().catch((err) => console.error("Tunnels fetch failed:", err));
-  },[slug]);
+    return () => { detachLinks(); };
+  },[slug, navigate]);
   return <div ref={ref} dangerouslySetInnerHTML={{__html:html}} />;
 }
