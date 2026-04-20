@@ -273,17 +273,28 @@ export async function loadGraphData(): Promise<GraphDataset> {
     return null;
   };
 
-  // Aggregate wa_contacts rows into people keyed by email.
+  // Aggregate wa_contacts rows into people. Keying rules:
+  //   1. Normalized email if present — all rows sharing that email are
+  //      one person, even if display_name varies (e.g. a shared test
+  //      mailbox reused under several names).
+  //   2. Else normalized display_name (trimmed, lowercased). Different
+  //      rows with the same dn and no email collapse to the same person.
+  //      Rows with the same dn but DIFFERENT emails stay separate —
+  //      rule #1 wins, we trust explicit email mismatches.
+  //   3. Else the raw contact id (truly anonymous row, don't merge).
   const personByKey = new Map<string, PersonAgg>();
   const keyByContactId = new Map<string, string>();
   for (const contact of contacts) {
     const contactId = contact?.id ? String(contact.id) : "";
     if (!contactId) continue;
     const email = normalizeEmail(contact?.email);
+    const dn = String(contact?.display_name ?? "").trim();
+    const dnKey = dn.toLowerCase();
     const phone = String(contact?.phone_number ?? "").trim();
-    // Without an email we still want these rows on the graph, but they
-    // can't be merged with sibling rows, so key them by phone then id.
-    const key = email || (phone ? `phone:${phone}` : `contact:${contactId}`);
+    let key: string;
+    if (email) key = `email:${email}`;
+    else if (dnKey) key = `name:${dnKey}`;
+    else key = `contact:${contactId}`;
     let agg = personByKey.get(key);
     if (!agg) {
       agg = newPersonAgg(key, email);
@@ -292,7 +303,6 @@ export async function loadGraphData(): Promise<GraphDataset> {
     }
     agg.contactIds.add(contactId);
     keyByContactId.set(contactId, key);
-    const dn = String(contact?.display_name ?? "").trim();
     if (dn) agg.displayNameCounts.set(dn, (agg.displayNameCounts.get(dn) ?? 0) + 1);
     const la = String(contact?.last_active_at ?? "");
     if (la && la > agg.lastActiveAt) agg.lastActiveAt = la;
