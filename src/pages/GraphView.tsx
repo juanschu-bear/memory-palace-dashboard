@@ -130,6 +130,14 @@ export default function GraphView() {
   // in "on-zoom" mode and by detail-on-zoom node rendering.
   const [zoomLevel, setZoomLevel] = useState(1);
 
+  // Pinned nodes (fx/fy set on the simulation node). We store the id
+  // set here too so React can re-render the pin indicator when the
+  // underlying sim object mutates. Double-click on a pinned node
+  // releases it back to the live simulation.
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => new Set());
+  const lastClickRef = useRef<{ id: string; at: number } | null>(null);
+  const DOUBLE_CLICK_MS = 300;
+
   useEffect(() => {
     let cancelled = false;
     loadGraphData()
@@ -401,6 +409,25 @@ export default function GraphView() {
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       ctx.fillText(data.label, x, y + radius + 4 / scale);
+    }
+
+    // Pin indicator: small filled diamond at the top-right of any node
+    // whose fx/fy is set (i.e. dragged and released or otherwise
+    // anchored). Double-clicking the node releases it.
+    const simNode = node as { fx?: number | null; fy?: number | null };
+    if (simNode.fx != null && simNode.fy != null) {
+      const pinSize = 4.5 / scale;
+      const px = x + radius + pinSize * 0.6;
+      const py = y - radius - pinSize * 0.6;
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = "rgba(255, 210, 120, 0.95)";
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.lineWidth = 0.8 / scale;
+      ctx.fillRect(-pinSize / 2, -pinSize / 2, pinSize, pinSize);
+      ctx.strokeRect(-pinSize / 2, -pinSize / 2, pinSize, pinSize);
+      ctx.restore();
     }
 
     ctx.globalAlpha = prevAlpha;
@@ -1318,7 +1345,7 @@ export default function GraphView() {
           autoPauseRedraw={false}
           enableNodeDrag
           minZoom={0.3}
-          maxZoom={8}
+          maxZoom={6}
           linkColor={linkColor as any}
           linkLineDash={linkLineDash as any}
           linkWidth={(l) => {
@@ -1341,8 +1368,49 @@ export default function GraphView() {
           nodePointerAreaPaint={drawPointerArea}
           onNodeHover={(n) => setHoveredId(n ? String(n.id) : null)}
           onNodeClick={(n) => {
-            const data = nodeById.get(String(n.id));
+            const id = String(n.id);
+            const now = performance.now();
+            const last = lastClickRef.current;
+            // Detect double-click on the same node within DOUBLE_CLICK_MS.
+            // react-force-graph-2d has no onNodeDblClick, so we resolve
+            // it manually. A double-click releases a pinned node back
+            // to the simulation; a single click selects.
+            if (last && last.id === id && now - last.at <= DOUBLE_CLICK_MS) {
+              lastClickRef.current = null;
+              const sim = n as { fx?: number | null; fy?: number | null };
+              if (sim.fx != null || sim.fy != null) {
+                sim.fx = undefined as unknown as number;
+                sim.fy = undefined as unknown as number;
+                setPinnedIds((prev) => {
+                  if (!prev.has(id)) return prev;
+                  const next = new Set(prev);
+                  next.delete(id);
+                  return next;
+                });
+                // Nudge the simulation so the released node actually
+                // starts moving again instead of sitting at its last
+                // position.
+                fgRef.current?.d3ReheatSimulation?.();
+              }
+              return;
+            }
+            lastClickRef.current = { id, at: now };
+            const data = nodeById.get(id);
             if (data) setSelected(data);
+          }}
+          onNodeDragEnd={(n) => {
+            // Obsidian semantics: releasing a drag pins the node where
+            // it was dropped. Users un-pin via double-click.
+            const sim = n as { x?: number; y?: number; fx?: number | null; fy?: number | null };
+            if (sim.x != null) sim.fx = sim.x;
+            if (sim.y != null) sim.fy = sim.y;
+            const id = String(n.id);
+            setPinnedIds((prev) => {
+              if (prev.has(id)) return prev;
+              const next = new Set(prev);
+              next.add(id);
+              return next;
+            });
           }}
           onBackgroundClick={() => setSelected(null)}
           onZoom={(transform) => {
