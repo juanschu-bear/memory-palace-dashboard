@@ -118,6 +118,9 @@ export default function GraphView() {
         target: e.target,
         kind: e.kind,
         strength: e.strength,
+        relationship: e.relationship,
+        crossContext: e.crossContext,
+        sharedTopics: e.sharedTopics,
       })) as ForceLink[],
     };
   }, [dataset]);
@@ -383,17 +386,52 @@ export default function GraphView() {
 
   const linkColor = (l: ForceLink) => {
     const highlight = linkActive(l);
-    const kind = (l as ForceLink & { kind?: string }).kind;
+    const link = l as ForceLink & {
+      kind?: string;
+      crossContext?: boolean;
+    };
+    const kind = link.kind;
     const dimFactor = linkDimmed(l);
-    const base =
-      highlight
-        ? [200, 235, 255, 0.95]
-        : kind === "memory-avatar"
-          ? [255, 255, 255, 0.1]
-          : kind === "memory-person"
-            ? [86, 224, 160, 0.15]
-            : [120, 130, 200, 0.09];
-    return `rgba(${base[0]}, ${base[1]}, ${base[2]}, ${(base[3] as number) * dimFactor})`;
+    // On highlight, every layer lights up brighter regardless of kind.
+    if (highlight) {
+      // Cross-context stays orange even when highlighted so the
+      // cross-pollination signal doesn't get washed out on hover.
+      if (kind === "memory-memory-semantic" && link.crossContext) {
+        return `rgba(239, 159, 39, ${0.95 * dimFactor})`;
+      }
+      return `rgba(200, 235, 255, ${0.95 * dimFactor})`;
+    }
+    let base: [number, number, number, number];
+    if (kind === "memory-avatar") {
+      // Structural (ownership): neutral white.
+      base = [255, 255, 255, 0.1];
+    } else if (kind === "memory-person") {
+      // Structural (attribution): neutral cyan-green.
+      base = [86, 224, 160, 0.15];
+    } else if (kind === "memory-memory-semantic") {
+      if (link.crossContext) {
+        // Orange — rare, high-signal cross-context connection.
+        base = [239, 159, 39, 0.85];
+      } else {
+        // Purple (#7F77DD) — authored semantic link.
+        base = [127, 119, 221, 0.55];
+      }
+    } else {
+      // Thematic: neutral gray, weakest layer.
+      base = [95, 94, 90, 0.4];
+    }
+    return `rgba(${base[0]}, ${base[1]}, ${base[2]}, ${base[3] * dimFactor})`;
+  };
+
+  // Cross-context semantic edges render dashed. All other edges render
+  // as a solid line. react-force-graph-2d reads this via the
+  // linkLineDash prop (dash pattern or null).
+  const linkLineDash = (l: ForceLink): number[] | null => {
+    const link = l as ForceLink & { kind?: string; crossContext?: boolean };
+    if (link.kind === "memory-memory-semantic" && link.crossContext) {
+      return [4, 3];
+    }
+    return null;
   };
 
   const selectedNeighbors = selected
@@ -1104,11 +1142,16 @@ export default function GraphView() {
           minZoom={0.3}
           maxZoom={8}
           linkColor={linkColor as any}
+          linkLineDash={linkLineDash as any}
           linkWidth={(l) => {
             const active = linkActive(l);
             if (active) return 1.8;
-            const kind = (l as ForceLink & { kind?: string }).kind;
-            return kind === "memory-memory" ? 0.6 : 0.9;
+            const link = l as ForceLink & { kind?: string; crossContext?: boolean };
+            if (link.kind === "memory-memory-thematic") return 0.6;
+            if (link.kind === "memory-memory-semantic") {
+              return link.crossContext ? 1.6 : 1.2;
+            }
+            return 0.9;
           }}
           linkDirectionalParticles={(l) => (linkActive(l) ? 3 : 0)}
           linkDirectionalParticleSpeed={0.006}
