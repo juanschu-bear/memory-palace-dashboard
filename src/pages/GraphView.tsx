@@ -161,14 +161,18 @@ export default function GraphView() {
   }, []);
 
   useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
     const measure = () => {
-      const el = containerRef.current;
-      if (!el) return;
       setSize({ w: el.clientWidth, h: el.clientHeight });
     };
     measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    // ResizeObserver fires synchronously on layout changes (zoom,
+    // sidebar open/close, window resize, parent style changes), where
+    // window.resize alone misses many of those.
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   const graphData = useMemo(() => {
@@ -290,14 +294,16 @@ export default function GraphView() {
   useEffect(() => {
     if (!dataset || !fgRef.current) return;
     const fg = fgRef.current;
-    // Spread clusters further so the bottom-right clump flattens out and
-    // the top-left of the viewport gets some density.
+    // Re-tuned for the layered edge model + full-viewport canvas: a
+    // little less repulsive charge, a longer rest length on links so
+    // structural anchors breathe, and a softer center so the bottom
+    // clump flattens out without forcing every node onto the centroid.
     const charge = fg.d3Force("charge") as unknown as { strength?: (v: number) => unknown };
-    charge?.strength?.(-260);
+    charge?.strength?.(-280);
     const link = fg.d3Force("link") as unknown as { distance?: (v: number) => unknown };
-    link?.distance?.(60);
+    link?.distance?.(70);
     const center = fg.d3Force("center") as unknown as { strength?: (v: number) => unknown };
-    center?.strength?.(0.05);
+    center?.strength?.(0.04);
 
     // Gentle breathing: wander force adds tiny velocity noise each tick so
     // the simulation never fully settles. Avatars drift slightly more to
@@ -319,6 +325,46 @@ export default function GraphView() {
       return force;
     })();
     (fg.d3Force as unknown as (name: string, fn: unknown) => unknown)("wander", wander);
+
+    // Boundary force: nodes that drift more than BOUNDARY_RADIUS away
+    // from the live centroid get a small linear pull-back each tick.
+    // Soft, not a hard wall — outliers can still temporarily wander
+    // beyond the radius, they just don't escape forever (which is
+    // exactly the "behavioral_analysis floating off-screen" failure
+    // mode the spec calls out).
+    const BOUNDARY_RADIUS = 600;
+    const BOUNDARY_K = 0.02;
+    const boundary = ((): { (_alpha: number): void; initialize?: (n: any[]) => void } => {
+      let simNodes: any[] = [];
+      const force = (_alpha: number) => {
+        if (simNodes.length === 0) return;
+        let cx = 0;
+        let cy = 0;
+        for (const n of simNodes) {
+          cx += n.x ?? 0;
+          cy += n.y ?? 0;
+        }
+        cx /= simNodes.length;
+        cy /= simNodes.length;
+        for (const n of simNodes) {
+          if (n.fx != null || n.fy != null) continue;
+          const dx = (n.x ?? 0) - cx;
+          const dy = (n.y ?? 0) - cy;
+          const dist = Math.hypot(dx, dy);
+          if (dist <= BOUNDARY_RADIUS) continue;
+          // Linear pull-back proportional to how far past the radius
+          // the node is. Nudge velocity, don't snap position.
+          const over = dist - BOUNDARY_RADIUS;
+          n.vx = (n.vx ?? 0) - (dx / dist) * over * BOUNDARY_K;
+          n.vy = (n.vy ?? 0) - (dy / dist) * over * BOUNDARY_K;
+        }
+      };
+      force.initialize = (nodes: any[]) => {
+        simNodes = nodes;
+      };
+      return force;
+    })();
+    (fg.d3Force as unknown as (name: string, fn: unknown) => unknown)("boundary", boundary);
 
     const t = setTimeout(() => {
       try {
