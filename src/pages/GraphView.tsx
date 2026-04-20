@@ -22,6 +22,42 @@ type ForceLink = LinkObject<GraphNode, GraphEdge>;
 
 const NAV_HEIGHT = 56;
 const ONBOARD_KEY = "graph-onboarded-v1";
+const EDGE_LABEL_MODE_KEY = "graph-edge-labels-v1";
+
+type EdgeLabelMode = "always" | "on-zoom";
+const DEFAULT_EDGE_LABEL_MODE: EdgeLabelMode = "on-zoom";
+// "Reveal on zoom" thresholds. Under MIN, labels are off. Between MIN
+// and MAX, labels fade in linearly. Above MAX, they are fully opaque.
+const EDGE_LABEL_ZOOM_MIN = 1.5;
+const EDGE_LABEL_ZOOM_MAX = 2.5;
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1) + "…";
+}
+
+function edgeLabelText(link: {
+  kind?: string;
+  relationship?: string;
+  sharedTopics?: string[];
+  crossContext?: boolean;
+}): string | null {
+  switch (link.kind) {
+    case "memory-avatar":
+      return "said by";
+    case "memory-person":
+      return "said to";
+    case "memory-memory-semantic":
+      return link.relationship ? link.relationship : null;
+    case "memory-memory-thematic": {
+      const t = link.sharedTopics ?? [];
+      if (!t.length) return null;
+      return `shared themes: ${t.slice(0, 3).join(", ")}`;
+    }
+    default:
+      return null;
+  }
+}
 
 function hexToRgb(hex: string): [number, number, number] {
   const clean = hex.replace("#", "");
@@ -75,6 +111,24 @@ export default function GraphView() {
     return !localStorage.getItem(ONBOARD_KEY);
   });
   const [onboardStep, setOnboardStep] = useState(0);
+
+  const [edgeLabelMode, setEdgeLabelMode] = useState<EdgeLabelMode>(() => {
+    if (typeof localStorage === "undefined") return DEFAULT_EDGE_LABEL_MODE;
+    const saved = localStorage.getItem(EDGE_LABEL_MODE_KEY);
+    return saved === "always" || saved === "on-zoom"
+      ? (saved as EdgeLabelMode)
+      : DEFAULT_EDGE_LABEL_MODE;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(EDGE_LABEL_MODE_KEY, edgeLabelMode);
+    } catch {
+      /* ignore */
+    }
+  }, [edgeLabelMode]);
+  // Current canvas zoom (force-graph's scale k). Used by label fade-in
+  // in "on-zoom" mode and by detail-on-zoom node rendering.
+  const [zoomLevel, setZoomLevel] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -367,13 +421,12 @@ export default function GraphView() {
     ctx.fill();
   };
 
-  const linkActive = (l: ForceLink) => {
+  const linkActive = (l: ForceLink): boolean => {
     const src = typeof l.source === "object" ? (l.source as GraphNode).id : l.source;
     const tgt = typeof l.target === "object" ? (l.target as GraphNode).id : l.target;
-    return (
-      (hoveredId && (hoveredId === src || hoveredId === tgt)) ||
-      (selected?.id && (selected.id === src || selected.id === tgt))
-    );
+    if (hoveredId && (hoveredId === src || hoveredId === tgt)) return true;
+    if (selected?.id && (selected.id === src || selected.id === tgt)) return true;
+    return false;
   };
 
   const linkDimmed = (l: ForceLink): number => {
@@ -432,6 +485,79 @@ export default function GraphView() {
       return [4, 3];
     }
     return null;
+  };
+
+  // Edge-label opacity: 1.0 in "always" mode; in "on-zoom" mode it
+  // fades from 0 at zoom<1.5 to 1 at zoom>2.5. Hovered/selected edges
+  // always go full opacity so the label is usable on inspection.
+  const edgeLabelOpacity = (active: boolean): number => {
+    if (active) return 1;
+    if (edgeLabelMode === "always") return 1;
+    if (zoomLevel <= EDGE_LABEL_ZOOM_MIN) return 0;
+    if (zoomLevel >= EDGE_LABEL_ZOOM_MAX) return 1;
+    return (zoomLevel - EDGE_LABEL_ZOOM_MIN) /
+      (EDGE_LABEL_ZOOM_MAX - EDGE_LABEL_ZOOM_MIN);
+  };
+
+  const drawLinkLabel = (l: ForceLink, ctx: CanvasRenderingContext2D, scale: number) => {
+    const link = l as ForceLink & {
+      source: GraphNode | string;
+      target: GraphNode | string;
+      kind?: string;
+      relationship?: string;
+      sharedTopics?: string[];
+      crossContext?: boolean;
+    };
+    const active = linkActive(l);
+    const opacity = edgeLabelOpacity(active);
+    if (opacity <= 0.01) return;
+    const label = edgeLabelText(link);
+    if (!label) return;
+    const src = typeof link.source === "object" ? link.source : null;
+    const tgt = typeof link.target === "object" ? link.target : null;
+    const sx = (src as { x?: number } | null)?.x;
+    const sy = (src as { y?: number } | null)?.y;
+    const tx = (tgt as { x?: number } | null)?.x;
+    const ty = (tgt as { y?: number } | null)?.y;
+    if (sx == null || sy == null || tx == null || ty == null) return;
+    const mx = (sx + tx) / 2;
+    const my = (sy + ty) / 2;
+    const text = truncate(label, 50);
+    const fontPx = 9 / scale;
+    ctx.font = `${fontPx}px "DM Sans", sans-serif`;
+    const metrics = ctx.measureText(text);
+    const pad = 3 / scale;
+    const boxW = metrics.width + pad * 2;
+    const boxH = fontPx + pad * 1.4;
+    const prev = ctx.globalAlpha;
+    ctx.globalAlpha = prev * opacity * linkDimmed(l);
+    // Subtle pill behind the text so it stays legible on busy backgrounds.
+    ctx.fillStyle = "rgba(5, 8, 18, 0.72)";
+    ctx.beginPath();
+    (ctx as unknown as {
+      roundRect?: (
+        x: number, y: number, w: number, h: number, r: number | number[],
+      ) => void;
+    }).roundRect
+      ? (ctx as unknown as {
+          roundRect: (
+            x: number, y: number, w: number, h: number, r: number | number[],
+          ) => void;
+        }).roundRect(mx - boxW / 2, my - boxH / 2, boxW, boxH, 3 / scale)
+      : ctx.rect(mx - boxW / 2, my - boxH / 2, boxW, boxH);
+    ctx.fill();
+    ctx.fillStyle =
+      link.kind === "memory-memory-semantic" && link.crossContext
+        ? "rgba(255, 200, 140, 0.95)"
+        : link.kind === "memory-memory-semantic"
+          ? "rgba(220, 215, 255, 0.92)"
+          : link.kind === "memory-memory-thematic"
+            ? "rgba(180, 180, 180, 0.85)"
+            : "rgba(220, 235, 255, 0.85)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, mx, my);
+    ctx.globalAlpha = prev;
   };
 
   const selectedNeighbors = selected
@@ -698,6 +824,35 @@ export default function GraphView() {
         .graph-filters .reset-btn:hover {
           background: rgba(255, 120, 180, 0.1);
           border-color: rgba(255, 120, 180, 0.55);
+        }
+        .graph-filters .seg {
+          display: inline-flex;
+          border: 1px solid rgba(63, 224, 255, 0.22);
+          border-radius: 999px;
+          padding: 2px;
+          background: rgba(5, 8, 18, 0.55);
+        }
+        .graph-filters .seg button {
+          appearance: none;
+          background: transparent;
+          border: none;
+          color: rgba(200, 230, 255, 0.7);
+          padding: 4px 10px;
+          font-size: 0.62rem;
+          letter-spacing: 0.2em;
+          text-transform: uppercase;
+          border-radius: 999px;
+          cursor: pointer;
+          font-family: inherit;
+          transition: background 160ms ease, color 160ms ease;
+        }
+        .graph-filters .seg button:hover {
+          color: #fff;
+        }
+        .graph-filters .seg button.on {
+          background: rgba(63, 224, 255, 0.22);
+          color: #fff;
+          box-shadow: inset 0 0 0 1px rgba(63, 224, 255, 0.35);
         }
         .graph-legend {
           position: absolute;
@@ -1105,6 +1260,29 @@ export default function GraphView() {
             </select>
             <span className="caret">▾</span>
           </div>
+          <div className="filter-field">
+            <label>Labels</label>
+            <div className="seg" role="group" aria-label="Edge label visibility">
+              <button
+                type="button"
+                className={edgeLabelMode === "always" ? "on" : ""}
+                onClick={() => setEdgeLabelMode("always")}
+                title="Show every edge label at all zoom levels"
+                aria-pressed={edgeLabelMode === "always"}
+              >
+                Always
+              </button>
+              <button
+                type="button"
+                className={edgeLabelMode === "on-zoom" ? "on" : ""}
+                onClick={() => setEdgeLabelMode("on-zoom")}
+                title="Labels fade in as you zoom past 1.5x, fully visible past 2.5x"
+                aria-pressed={edgeLabelMode === "on-zoom"}
+              >
+                On zoom
+              </button>
+            </div>
+          </div>
           {hasFilter && (
             <button
               className="reset-btn"
@@ -1157,6 +1335,8 @@ export default function GraphView() {
           linkDirectionalParticleSpeed={0.006}
           linkDirectionalParticleWidth={1.6}
           linkDirectionalParticleColor={() => "rgba(180, 220, 255, 0.9)"}
+          linkCanvasObject={drawLinkLabel as any}
+          linkCanvasObjectMode={() => "after"}
           nodeCanvasObject={drawNode}
           nodePointerAreaPaint={drawPointerArea}
           onNodeHover={(n) => setHoveredId(n ? String(n.id) : null)}
@@ -1165,6 +1345,10 @@ export default function GraphView() {
             if (data) setSelected(data);
           }}
           onBackgroundClick={() => setSelected(null)}
+          onZoom={(transform) => {
+            const k = (transform as { k?: number }).k;
+            if (typeof k === "number" && Number.isFinite(k)) setZoomLevel(k);
+          }}
         />
       )}
 
