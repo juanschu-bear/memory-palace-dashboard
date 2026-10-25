@@ -36,7 +36,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       method: req.method || "GET",
       headers: {
         apikey: key,
-        Authorization: `Bearer ${key}`,
+        ...(!key.startsWith('sb_') ? { Authorization: `Bearer ${key}` } : {}),
         "Content-Type": "application/json",
         ...(req.headers["prefer"] ? { Prefer: req.headers["prefer"] as string } : {}),
       },
